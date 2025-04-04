@@ -18,6 +18,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "fsLow.h"
+#include "vcb.h"
+
+// Constants to help with managing the free space
+#define BLOCK_FREE 0x00000000       
+#define BLOCK_RESERVED 0xFFFFFFFE    
 
 typedef uint32_t FATEntry; 
 

@@ -38,7 +38,7 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry * parent)
         return 0;
     }
 
-    //Implemented once we get the free space functions needed.
+    // Implemented once we get the free space functions needed.
     uint64_t startBlock = allocateBlocks(blocksNeeded);
 
     for(int i = 0; i < actualNumEntries; i++)
@@ -55,7 +55,7 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry * parent)
     newDirectory[0].startBlock = startBlock;
     newDirectory[0].inUse = true;
 
-    //Time related fields
+    // Time related fields
     newDirectory[0].createdTime = currentTime;
     newDirectory[0].lastModified = currentTime;
     newDirectory[0].lastAccessed = currentTime;
@@ -96,7 +96,8 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry * parent)
     }
     
     // Free the memory
-    free(newDirectory);
+    // free when we no longer need the directory 
+    // free(newDirectory);
     
     // Return the starting block
     return startBlock;

@@ -6,9 +6,9 @@
 * Group-Name::
 * Project:: Basic File System
 *
-* File:: free_space.h
+* File:: free_space.c
 *
-* Description:: Interface for free space management
+* Description:: 
 *
 **************************************************************/
 
@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "fsLow.h"
 #include "vcb.h"
 

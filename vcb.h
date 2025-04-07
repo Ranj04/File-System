@@ -16,6 +16,8 @@
 #define VCB_H
 
 #include <stdint.h>
+#ifndef VCB_H
+#define VCB_H
 
 #define BLOCK_SIZE 512
 #define MAGIC_NUMBER 0xDEADBEEF
@@ -35,3 +37,7 @@ extern VolumeControlBlock* vcb;
 #endif
 
 
+
+void initializeVCB(VolumeControlBlock *vcbPointer, unsigned long signature);
+
+#endif

@@ -1,9 +1,9 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
 * Name::
-* Student IDs::
-* GitHub-Name::
-* Group-Name::
+* Student IDs:
+* GitHub-Name:
+* Group-Name: The Ducklings
 * Project:: Basic File System
 *
 * File:: vcb.c

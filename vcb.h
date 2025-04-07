@@ -13,6 +13,8 @@
 **************************************************************/
 
 #include <stdint.h>
+#ifndef VCB_H
+#define VCB_H
 
 #define BLOCK_SIZE 512
 
@@ -25,3 +27,7 @@ typedef struct VolumeControlBlock {
 	uint32_t freeSpaceHead;	        // Pointer to first free space block 
 	uint32_t freeSpaceSize;	        // Size of free space tracking table in blocks
 }VolumeControlBlock; 
+
+void initializeVCB(VolumeControlBlock *vcbPointer, unsigned long signature);
+
+#endif

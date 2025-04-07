@@ -18,7 +18,7 @@
 
 void initializeVCB(VolumeControlBlock *vcbPointer, unsigned long signature, uint16_t numBlocks, uint16_t BlockSize){
     vcbPointer->signature = signature;
-    vcbPointer->volumeSize = numBlocks * BlockSize;
+    vcbPointer->volumeSize = numBlocks;
     vcbPointer->totalBlocks = 0;
     vcbPointer->rootDirBlock = createDirectory(numBlocks, NULL);
     vcbPointer->freeSpaceStartBlock = allocateBlocks(numBlocks);

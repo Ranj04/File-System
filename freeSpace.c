@@ -12,6 +12,9 @@
 *
 **************************************************************/
 #include "freeSpace.h"
+#include <string.h>
+#include <stdio.h>
+
 
 void initFreeSpace(int blockCount, int blockSize){
     int entriesPerBlock = blockSize / sizeof(FATEntry);

@@ -16,25 +16,61 @@
 
 
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <stdio.h>
-#include <string.h>
-
 #include "fsLow.h"
-#include "mfs.h"
+#include "vcb.h"
+#include "freeSpace.h"
+#include "createDirectory.h"
 
+VolumeControlBlock* vcb = NULL;
 
-int initFileSystem (uint64_t numberOfBlocks, uint64_t blockSize)
-	{
-	printf ("Initializing File System with %ld blocks with a block size of %ld\n", numberOfBlocks, blockSize);
-	/* TODO: Add any code you need to initialize your file system. */
+int initFileSystem(uint64_t numberOfBlocks, uint64_t blockSize)
+{
+    printf("Initializing File System with %ld blocks and block size %ld bytes\n", numberOfBlocks, blockSize);
 
-	return 0;
-	}
-	
-	
-void exitFileSystem ()
-	{
-	printf ("System exiting\n");
-	}
+    vcb = malloc(sizeof(VolumeControlBlock));
+    if (!vcb) {
+        fprintf(stderr, "VCB malloc failed\n");
+        return -1;
+    }
+
+    if (LBAread(vcb, 1, 0) != 1) {
+        fprintf(stderr, "Error reading block 0\n");
+        return -1;
+    }
+
+    if (vcb->signature != MAGIC_NUMBER) {
+        printf("Volume not formatted. Formatting now...\n");
+
+        vcb->signature = MAGIC_NUMBER;
+        vcb->volumeSize = numberOfBlocks;
+        vcb->totalBlocks = numberOfBlocks;
+
+        printf("Calling initFreeSpace...\n");
+        initFreeSpace(numberOfBlocks, blockSize);
+
+        printf("Calling createDirectory...\n");
+        vcb->rootDirBlock = createDirectory(50, NULL);
+
+        printf("Writing VCB back to disk...\n");
+        if (LBAwrite(vcb, 1, 0) != 1) {
+            fprintf(stderr, "Error writing VCB to disk\n");
+            return -1;
+        }
+
+        printf("Volume formatted successfully!\n");
+    } else {
+        printf("Volume already formatted.\n");
+    }
+
+    return 0;
+}
+
+void exitFileSystem()
+{
+    printf("System exiting.\n");
+    if (vcb) {
+        free(vcb);
+        vcb = NULL;
+    }
+}

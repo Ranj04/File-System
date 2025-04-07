@@ -12,16 +12,26 @@
 *
 **************************************************************/
 
+#ifndef VCB_H
+#define VCB_H
+
 #include <stdint.h>
 
 #define BLOCK_SIZE 512
+#define MAGIC_NUMBER 0xDEADBEEF
 
 typedef struct VolumeControlBlock {
-	unsigned long signature; 	    // Signature of the file system
-	uint32_t volumeSize; 		    // Total volume size in blocks
-	uint32_t totalBlocks; 		    // Total number of blocks in volume
-	uint32_t rootDirBlock; 	        // Location of the root directory
-	uint32_t freeSpaceStartBlock;	// Where the FAT free space table starts/
-	uint32_t freeSpaceHead;	        // Pointer to first free space block 
-	uint32_t freeSpaceSize;	        // Size of free space tracking table in blocks
-}VolumeControlBlock; 
+    unsigned long signature;       // Used to check formatting
+    uint32_t volumeSize;           // Total number of blocks
+    uint32_t totalBlocks;          // Total usable blocks
+    uint32_t rootDirBlock;         // Starting block of root directory
+    uint32_t freeSpaceStartBlock;  // (Optional, for FAT start)
+    uint32_t freeSpaceHead;        // Head of free space chain
+    uint32_t freeSpaceSize;        // Size of the free space region
+} VolumeControlBlock;
+
+extern VolumeControlBlock* vcb;
+
+#endif
+
+

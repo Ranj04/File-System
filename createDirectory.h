@@ -30,13 +30,11 @@ typedef struct DirectoryEntry {
     uint32_t fileSize;                  // size of file in Bytes 
     uint32_t startBlock;                // starting block location for this file
     time_t createdTime;                 // file creation timestamp
-    time_t lastModified;                // last time modified timestamp
-    time_t lastAccessed;                // last time accessed timestamp    
+    time_t lastModified;               // last time modified timestamp
+    time_t lastAccessed;               // last time accessed timestamp    
     bool isDir;                         // flag to tell if this entry is a directory or a file 
     bool inUse;                         // to track if the entry is in use
 } DirectoryEntry;
 
-// MATCHED to createDirectory.c!
-int createDirectory(int entryCount, const char* parentName);
-
 #endif
+

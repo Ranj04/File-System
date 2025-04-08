@@ -1,9 +1,9 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
-* Name::
+* Name:: Ty Bohlander
 * Student IDs::
-* GitHub-Name::
-* Group-Name::
+* GitHub-Name:: Tybo2020
+* Group-Name:: The Ducklings
 * Project:: Basic File System
 *
 * File:: free_space.c
@@ -39,6 +39,5 @@ FATEntry readFATEntry(int blockNum);
 bool writeFATEntry(int blockNum, FATEntry entry);
 uint64_t getFATEntryPos(int blockNum);
 
-extern struct VolumeControlBlock* vcb;
 
 #endif

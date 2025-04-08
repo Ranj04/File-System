@@ -1,9 +1,9 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
-* Name::
-* Student IDs::
-* GitHub-Name::
-* Group-Name::
+* Name:: Julia Bui & Eugenio Ramirez
+* Student IDs:: 
+* GitHub-Name:: Tybo2020
+* Group-Name:: The Ducklings
 * Project:: Basic File System
 *
 * File:: createDirectory.h

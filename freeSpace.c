@@ -1,9 +1,9 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
-* Name::
+* Name:: Ty Bohlander
 * Student IDs::
-* GitHub-Name::
-* Group-Name::
+* GitHub-Name:: Tybo2020
+* Group-Name:: The Ducklings
 * Project:: Basic File System
 *
 * File:: free_space.h
@@ -19,7 +19,7 @@
 void initFreeSpace(int blockCount, int blockSize){
     int entriesPerBlock = blockSize / sizeof(FATEntry);
 
-    int blocksNeeded = (blockCount + entriesPerBlock - 1) / entriesPerBlock;
+    int blocksNeeded = 6;
 
     // Allocate buffer for one FAT entry block
     FATEntry* fatBuffer = (FATEntry*)malloc(blockSize);
@@ -155,8 +155,7 @@ bool isBlockFree(int blockNum) {
     
     FATEntry entry = readFATEntry(blockNum);
     
-    // Check if the entry indicates the block is free
-    return (entry == BLOCK_FREE);
+    return (entry != BLOCK_RESERVED);
 }
 
 // Retrieves the next block in the chain

@@ -1,9 +1,9 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
-* Name::
+* Name:: Juan Ramirez & Ranjiv Jithendran 
 * Student IDs::
-* GitHub-Name::
-* Group-Name::
+* GitHub-Name:: Tybo2020
+* Group-Name:: The Ducklings
 * Project:: Basic File System
 *
 * File:: vcb.h

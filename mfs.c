@@ -23,7 +23,17 @@ struct fs_diriteminfo *fs_readdir(fdDir *dirp);
 int fs_closedir(fdDir *dirp);
 
 // Misc directory functions
-char * fs_getcwd(char *pathname, size_t size);
+char * fs_getcwd(char *pathname, size_t size) {
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
+    if (parsePath(pathname, ppinfo) != -1){
+        strncpy(pathname, ppinfo->parent->fileName, size);
+
+        free(ppinfo);
+        ppinfo = NULL;
+        return(pathname); 
+    }
+}
 int fs_setcwd(char *pathname);   //linux chdir
 int fs_isFile(char * filename);	//return 1 if file, 0 otherwise
 int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
@@ -81,6 +91,7 @@ int parsePath(char* path, ppinfo* ppi){
         }
         parent = tempParent;
         token1 = token2;
+        return 0;
     }
 }
 

@@ -6,7 +6,7 @@
 * Group-Name:: The Ducklings
 * Project:: Basic File System
 *
-* File:: free_space.h
+* File:: free_space.c
 *
 * Description:: Interface for free space management
 *
@@ -141,10 +141,68 @@ int allocateBlocks(int numOfBlocks) {
     return startBlock;
 }
 int extendChain(int headOfChain, int amountToChange){
+    int currentBlock = headOfChain; 
+    int lastBlock = -1; 
 
+    while(currentBlock != BLOCK_RESERVED){
+        lastBlock = currentBlock;
+        // Read next block in chain 
+        currentBlock = readFATEntry(currentBlock);
+
+        // Prevent infinite loop
+        if(currentBlock == lastBlock){
+            break;
+        }
+    }
+
+    int newBlocksHead = allocateBlocks(amountToChange);
+
+    if (newBlocksHead == -1){
+        // Failed to allocate new blocks 
+        return -1; 
+    }   
+
+    // Link the last block of existing chain to the head of the new chain
+    if (!writeFATEntry(lastBlock, newBlocksHead)) {
+
+        // If linking fails, release the newly allocated blocks back to the free list
+        releaseBlocks(newBlocksHead, amountToChange);
+        return -1; 
+    }
+    return headOfChain;
 }
 int releaseBlocks(int location, int numOfBlocks){
+    int blocksReleased = 0;
+    int currentBlock = location;
+    int nextBlock; 
 
+    int currentFreeSpaceHead = vcb->freeSpaceHead;
+
+    while(currentBlock != BLOCK_RESERVED && blocksReleased < numOfBlocks){
+        // Find next block in chain
+        nextBlock = readFATEntry(currentBlock);
+
+        if(!writeFATEntry(currentBlock, currentFreeSpaceHead)){
+            vcb->freeSpaceHead = location;
+            LBAwrite(vcb, 1, 0);
+            return blocksReleased;
+        }
+
+        // This block becomes the new head of the free list
+        currentFreeSpaceHead = currentBlock;
+        
+        // Move to the next block
+        currentBlock = nextBlock;
+        blocksReleased++;
+    }
+    
+    // Update the free space head in the VCB
+    vcb->freeSpaceHead = location;
+    
+    // Write the updated VCB to disk
+    LBAwrite(vcb, 1, 0);
+    
+    return blocksReleased;
 }
 
 bool isBlockFree(int blockNum) {

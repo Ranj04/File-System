@@ -23,7 +23,7 @@
 #include <time.h>
 
 #include "b_io.h"
-
+#include "createDirectory.h"
 #include <dirent.h>
 #define FT_REGFILE	DT_REG
 #define FT_DIRECTORY DT_DIR
@@ -59,6 +59,13 @@ typedef struct
 	struct fs_diriteminfo * di;		/* Pointer to the structure you return from read */
 	} fdDir;
 
+// This is a private structure that will only be used for the parsePath helper function 
+typedef struct ppinfo{
+	DirectoryEntry* parent; 
+	int index;
+	char * lastElementName; 
+}ppinfo; 
+
 // Key directory functions
 int fs_mkdir(const char *pathname, mode_t mode);
 int fs_rmdir(const char *pathname);
@@ -74,6 +81,10 @@ int fs_setcwd(char *pathname);   //linux chdir
 int fs_isFile(char * filename);	//return 1 if file, 0 otherwise
 int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
 int fs_delete(char* filename);	//removes a file
+
+// Helper Functions 
+int parsePath(char* path, ppinfo* ppi);
+int findInDirectory(DirectoryEntry* parent, char* token);
 
 
 // This is the strucutre that is filled in from a call to fs_stat

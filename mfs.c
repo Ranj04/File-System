@@ -27,14 +27,46 @@ char * fs_getcwd(char *pathname, size_t size) {
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
 
     if (parsePath(pathname, ppinfo) != -1){
-        strncpy(pathname, ppinfo->parent->fileName, size);
+        strncpy(pathname, ppinfo->lastElementName, size);
 
         free(ppinfo);
         ppinfo = NULL;
         return(pathname); 
     }
 }
-int fs_setcwd(char *pathname);   //linux chdir
+
+//linux chdir
+int fs_setcwd(char *pathname){
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
+    if (parsePath(pathname, ppinfo) == -1) {
+        return -1; 
+    }
+
+    // Special case for the root directory 
+    if (ppinfo-> index == -2){
+        currentWorkingDirectory = rootDirectory;
+
+        free(ppinfo);
+        ppinfo == NULL;
+        return 0;
+    }
+
+    if(fs_isDir(pathname) != 1){
+        free(ppinfo);
+        return -1; // Not a directory 
+    }
+
+    /**** Handle cleaning up path name here ****/
+
+    // Set CWD to the target directory
+    currentWorkingDirectory = &(ppinfo->parent[ppinfo->index]); 
+
+    free(ppinfo);
+    ppinfo = NULL;
+
+    return 0;
+}   
 int fs_isFile(char * filename);	//return 1 if file, 0 otherwise
 int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
 int fs_delete(char* filename);	//removes a file
@@ -50,10 +82,10 @@ int parsePath(char* path, ppinfo* ppi){
     }
 
     if (path[0] == '/'){
-        // startParent = alreadyLoadedRootDir //  Global Var 
+        startParent = rootDirectory;
     }
     else {
-        // startParent = alreadyLoadedCWD; 
+        startParent = currentWorkingDirectory;
     }
     parent = startParent;
 

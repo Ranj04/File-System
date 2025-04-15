@@ -88,6 +88,8 @@ int fs_delete(char* filename);	//removes a file
 // Helper Functions 
 int parsePath(char* path, ppinfo* ppi);
 int findInDirectory(DirectoryEntry* parent, char* token);
+DirectoryEntry* loadDir(DirectoryEntry* targetDir);
+int isDEaDir(DirectoryEntry* targetDir);
 
 
 // This is the strucutre that is filled in from a call to fs_stat

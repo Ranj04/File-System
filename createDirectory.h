@@ -22,6 +22,7 @@
 #include <time.h>
 
 #define MAX_FILENAME_LENGTH 100
+#define MAX_ENTRIES 32
 #define DIRECTORY_ENTRY_SIZE sizeof(DirectoryEntry)
 
 typedef struct DirectoryEntry {

@@ -191,18 +191,6 @@ int findInDirectory(DirectoryEntry* parent, char* token){
     return -1;
 }
 
-DirectoryEntry* loadDir(DirectoryEntry* targetDir){
-
-}
-
-// Returns 1 if DE is a directory, 0 if false
-int isDEaDir(DirectoryEntry* targetDir){
-    if(targetDir->isDir == false){
-        return 0;
-    }
-    else return 1; 
-}
-
 // TO DO: 
 DirectoryEntry* loadDir(DirectoryEntry* targetDir){
 

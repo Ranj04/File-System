@@ -73,7 +73,39 @@ fdDir * fs_opendir(const char *pathname){
 }
 
 // TO DO:
-struct fs_diriteminfo *fs_readdir(fdDir *dirp);
+struct fs_diriteminfo *fs_readdir(fdDir *dirp){
+
+    DirectoryEntry* dirEntries = dirp->directory;
+    int position = dirp->dirEntryPosition;
+
+    // Search for a valid entry
+    while(position < MAX_ENTRIES){
+        if (dirEntries[position].inUse){
+            // Exit once we find the valid entry
+            break;
+        }
+        position++;
+    }
+
+    dirp->di->d_reclen = sizeof(struct fs_diriteminfo);
+
+    // Copy the filename 
+    strncpy(dirp->di->d_name, dirEntries[position].fileName, 255);
+    dirp->di->d_name[255] = '\0';
+
+    // Set the file type
+    if (dirEntries[position].isDir) {
+        dirp->di->fileType = FT_DIRECTORY;
+    } else {
+        dirp->di->fileType = FT_REGFILE;
+    }
+    
+    // Update the position counter for the next call
+    dirp->dirEntryPosition = position + 1;
+    
+    return dirp->di;
+}
+
 int fs_closedir(fdDir *dirp);
 
 
@@ -170,11 +202,10 @@ int parsePath(char* path, ppinfo* ppi){
         DirectoryEntry* tempParent = loadDir(&parent[idx]);
         if(parent != startParent){
             free(parent);
-        }else {
-            parent = tempParent;
-            token1 = token2;
         }
-        return 0;
+        
+        parent = tempParent;
+        token1 = token2;
     }
 }
 

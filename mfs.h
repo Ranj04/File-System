@@ -62,7 +62,7 @@ typedef struct
 	struct fs_diriteminfo * di;		/* Pointer to the structure you return from read */
 	} fdDir;
 
-// This is a private structure that will only be used for the parsePath helper function 
+// This is a private structure that will be populated by the parsePath helper function 
 typedef struct ppinfo{
 	DirectoryEntry* parent; 
 	int index;

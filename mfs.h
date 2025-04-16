@@ -24,6 +24,7 @@
 
 #include "b_io.h"
 #include "createDirectory.h"
+#include "vcb.h"
 #include <dirent.h>
 #define FT_REGFILE	DT_REG
 #define FT_DIRECTORY DT_DIR

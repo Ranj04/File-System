@@ -14,7 +14,65 @@
 #include "mfs.h"
 
 // Key directory functions
-int fs_mkdir(const char *pathname, mode_t mode);
+int fs_mkdir(const char *pathname, mode_t mode){
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
+    if(parsePath(pathname, ppinfo) != 0){
+        free(ppinfo);
+        return NULL;
+    }
+
+    //Check if a file/directory with the same name already exists in that location
+    if(ppinfo->index != -1){
+        free(ppinfo);
+        return -1;
+    }
+
+    uint64_t startBlock = createDirectory(ppinfo->parent, MAX_ENTRIES);
+
+    if(startBlock == 0){
+        free(ppinfo);
+        return -1;  // Failed to create directory
+    }
+
+    // Find a free entry in the parent directory for the new directory
+    int freeIndex = -1;
+    for(int i = 0; i < MAX_ENTRIES; i++){
+        if(!ppinfo->parent[i].inUse){
+            freeIndex = i;
+            break;
+        }
+    }
+    
+    if(freeIndex == -1){
+        // No free space in parent directory
+        free(ppinfo);
+        return -1;
+    }
+
+    // Initialize the new directory entry in the parent
+    time_t currentTime = time(NULL);
+    strncpy(ppinfo->parent[freeIndex].fileName, ppinfo->lastElementName, sizeof(ppinfo->parent[freeIndex].fileName) - 1);
+    ppinfo->parent[freeIndex].isDir = true;
+    ppinfo->parent[freeIndex].fileSize = MAX_ENTRIES * sizeof(DirectoryEntry);  // Approximate size
+    ppinfo->parent[freeIndex].startBlock = startBlock;
+    ppinfo->parent[freeIndex].inUse = true;
+    ppinfo->parent[freeIndex].createdTime = currentTime;
+    ppinfo->parent[freeIndex].lastModified = currentTime;
+    ppinfo->parent[freeIndex].lastAccessed = currentTime;
+    
+    // Write the updated parent directory back to disk
+    int parentBlocks = (ppinfo->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    if(LBAwrite(ppinfo->parent, parentBlocks, ppinfo->parent[0].startBlock) != parentBlocks){
+        free(ppinfo);
+        return -1;  // Failed to update parent directory
+    }
+    
+    free(ppinfo);
+    return 0;
+
+}
+
 int fs_rmdir(const char *pathname);
 
 // Directory iteration functions

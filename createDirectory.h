@@ -37,5 +37,7 @@ typedef struct DirectoryEntry {
     bool inUse;                         // to track if the entry is in use
 } DirectoryEntry;
 
+uint64_t createDirectory(int initialNumEntries, DirectoryEntry * parent);
+
 #endif
 

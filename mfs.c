@@ -164,7 +164,31 @@ struct fs_diriteminfo *fs_readdir(fdDir *dirp){
     return dirp->di;
 }
 
-int fs_closedir(fdDir *dirp);
+int fs_closedir(fdDir *dirp){
+    // check to see if we are in a proper directory 
+    if (dirp == NULL){
+        return -1; 
+    }
+
+    // free the directory item info struct
+    if (dirp -> di != NULL){
+        free(dirp -> di);
+        dirp -> di = NULL; 
+    }
+
+    // free the dreictory entry array
+    if (dirp -> directory != NULL){
+        free(dirp -> directory);
+        dirp -> directory = NULL; 
+    }
+
+    // free the main fdDir struc
+    free (dirp);
+    dirp = NULL;
+
+    // muy importante to return to caller upon success 
+    return 0; 
+}
 
 
 // Misc directory functions

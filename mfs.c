@@ -231,9 +231,49 @@ int fs_setcwd(char *pathname){
 } 
 
 // TO DO 
-int fs_isFile(char * filename);	//return 1 if file, 0 otherwise
-int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
-int fs_delete(char* filename);	//removes a file
+int fs_isFile(char * filename){
+    int isDir = 0;
+    char* fileStr;
+    char* savePtr;
+
+    fileStr = strtok_r(filename, ".", &savePtr);
+    if(fileStr != NULL){
+        return 1;
+    }else{
+        isDir = fs_isDir(filename);
+        if(isDir == 1){
+            return 0;
+        }else{
+            return 1;
+        }
+    }
+}	//return 1 if file, 0 otherwise
+int fs_isDir(char * pathname){
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    if(parsePath(pathname, ppinfo) == -1){
+        return -1;
+    }else{
+        int indx = ppinfo->index;
+        if(ppinfo->parent[indx].isDir == true){
+            free(ppinfo);
+            ppinfo = NULL;
+            return 1;
+        }else{
+            free(ppinfo);
+            ppinfo = NULL;
+            return 0;
+        }
+    }
+}		//return 1 if directory, 0 otherwise
+int fs_delete(char* filename){
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    if(parsePath(filename, ppinfo) == -1){
+        return -1;
+    }else{
+        int index = ppinfo->index;
+        ppinfo->parent[index].inUse = false;
+    }
+}	//removes a file
 
 int parsePath(char* path, ppinfo* ppi){
     DirectoryEntry* parent; 

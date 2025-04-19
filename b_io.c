@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "b_io.h"
+#include "createDirectory.h"
 
 #define MAXFCBS 20
 #define B_CHUNK_SIZE 512
@@ -30,6 +31,9 @@ typedef struct b_fcb
 	char * buf;		//holds the open file buffer
 	int index;		//holds the current position in the buffer
 	int buflen;		//holds how many valid bytes are in the buffer
+	int currentBlk; //holds the current block number
+	int numBlocks; //hold how many blocks file occupies
+	DirectoryEntry * de; //holds the low level systems file info
 	} b_fcb;
 	
 b_fcb fcbArray[MAXFCBS];
@@ -53,7 +57,7 @@ b_io_fd b_getFCB ()
 	{
 	for (int i = 0; i < MAXFCBS; i++)
 		{
-		if (fcbArray[i].buff == NULL)
+		if (fcbArray[i].buf == NULL)
 			{
 			return i;		//Not thread safe (But do not worry about it for this assignment)
 			}
@@ -92,8 +96,75 @@ int b_seek (b_io_fd fd, off_t offset, int whence)
 		return (-1); 					//invalid file descriptor
 		}
 		
-		
-	return (0); //Change this
+	// Check if this FCB is actually in use
+    if (fcbArray[fd].buf == NULL)
+    {
+        return (-1);             // FCB not in use
+    }
+    
+    // Get directory entry from FCB
+    DirectoryEntry* de = fcbArray[fd].de;
+    if (de == NULL)
+    {
+        return (-1);             // No directory entry available
+    }
+    
+    // Calculate current absolute position and file size
+    int currentPos = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) + fcbArray[fd].index;
+    int fileSize = de->fileSize;  // From the directory entry
+    
+    // Calculate new position based on whence
+    int newPos = 0;
+    switch (whence)
+    {
+        case SEEK_SET:  // From beginning of file
+            newPos = offset;
+            break;
+            
+        case SEEK_CUR:  // From current position
+            newPos = currentPos + offset;
+            break;
+            
+        case SEEK_END:  // From end of file
+            newPos = fileSize + offset;  
+            break;
+            
+        default:
+            return (-1);  
+    }
+    
+    // Validate the new position
+    if (newPos < 0)
+    {
+        return (-1);  // Cannot seek before start of file
+    }
+    
+    if (newPos > fileSize)
+    {   
+        newPos = fileSize;
+    }
+    
+    // Calculate new block number and position within that block
+    int newBlockNum = newPos / B_CHUNK_SIZE;
+    int newIndex = newPos % B_CHUNK_SIZE;
+    
+    // If we're moving to a different block, we need to load that block
+    if (newBlockNum != fcbArray[fd].currentBlk)
+    {
+        // Assumption: block loading/saving will be handled in b_read/b_write
+        // Update the current block in the FCB
+        fcbArray[fd].currentBlk = newBlockNum;
+        
+        // Assumption: buffer management will be handled in b_read/b_write
+        // For a complete implementation, we might need to load the new block here
+    }
+    
+    // Update the position within the buffer
+    fcbArray[fd].index = newIndex;
+    
+    // Return the new absolute position
+    return newPos;	
+	
 	}
 
 

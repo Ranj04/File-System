@@ -356,3 +356,41 @@ int isDEaDir(DirectoryEntry* targetDir){
     }
     else return 1; 
 }
+
+int fs_stat(const char *path, struct fs_stat *buf){
+    printf("\n Printing metadata \n");
+
+    if (path == NULL || buf == NULL){
+		return -1; 
+	}
+
+    // need to allocate memeory to parse the directory path we want
+	ppinfo* info = malloc(sizeof(ppinfo));
+
+	// parse the path to locate desire file in directory struct
+    int result = parsePath((char *)path, info);
+    if(result != 0){
+		free(info);
+		return -1; 
+    }  
+    
+    // invalid path; index of -1 --> actual file does not exist 
+    if(info->index == -1){
+        free(info);
+        return -1; 
+    }
+
+    DirectoryEntry entry = info->parent[info->index];
+
+    // populate fs_stat struct
+    buf->st_size = entry.fileSize;
+    buf->st_blksize = BLOCK_SIZE;  
+    buf->st_blocks = (entry.fileSize + 511) / 512; 
+    buf->st_accesstime = entry.lastAccessed;
+    buf->st_modtime = entry.lastModified;
+    buf->st_createtime = entry.createdTime;
+
+    free(info);
+
+    return 0; 
+}

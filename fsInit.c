@@ -21,6 +21,7 @@
 #include "vcb.h"
 #include "freeSpace.h"
 #include "createDirectory.h"
+#include "mfs.h"
 
 VolumeControlBlock* vcb = NULL;
 
@@ -68,8 +69,31 @@ int initFileSystem(uint64_t numberOfBlocks, uint64_t blockSize)
         printf("Volume already formatted.\n");
     }
 
+   // Whether new or existing volume, load the root directory into memory
+    int rootDirSize = MAX_ENTRIES * sizeof(DirectoryEntry);
+    int rootDirBlocks = (rootDirSize + blockSize - 1) / blockSize;
+    
+    // Allocate memory for root directory
+    rootDirectory = (DirectoryEntry*)malloc(rootDirSize);
+    if (!rootDirectory) {
+        fprintf(stderr, "Failed to allocate memory for root directory\n");
+        return -1;
+    }
+    
+    // Read root directory from disk
+    if (LBAread(rootDirectory, rootDirBlocks, vcb->rootDirBlock) != rootDirBlocks) {
+        fprintf(stderr, "Failed to read root directory\n");
+        free(rootDirectory);
+        rootDirectory = NULL;
+        return -1;
+    }
+    
+    // Set current working directory to root
+    currentWorkingDirectory = rootDirectory;
+    
     return 0;
 }
+
 
 void printVolumeControlBlock(VolumeControlBlock* vcb) {
     if (vcb == NULL) {

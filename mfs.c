@@ -1,6 +1,6 @@
 /**************************************************************
 * Class::  CSC-415-03 Spring 2025
-* Name:: Ty Bohlander
+* Name:: Ty Bohlander, Julia Bui, Eugenio Ramirez, Juan Ramirez
 * Student IDs:: 
 * GitHub-Name:: Tybo2020
 * Group-Name:: The Ducklings
@@ -12,6 +12,12 @@
 *
 **************************************************************/
 #include "mfs.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+DirectoryEntry* rootDirectory = NULL;
+DirectoryEntry* currentWorkingDirectory = NULL;
 
 // Key directory functions
 int fs_mkdir(const char *pathname, mode_t mode){
@@ -19,7 +25,7 @@ int fs_mkdir(const char *pathname, mode_t mode){
 
     if(parsePath(pathname, ppinfo) != 0){
         free(ppinfo);
-        return NULL;
+        return -1;
     }
 
     //Check if a file/directory with the same name already exists in that location
@@ -28,7 +34,7 @@ int fs_mkdir(const char *pathname, mode_t mode){
         return -1;
     }
 
-    uint64_t startBlock = createDirectory(ppinfo->parent, MAX_ENTRIES);
+    uint64_t startBlock = createDirectory(MAX_ENTRIES, ppinfo->parent);
 
     if(startBlock == 0){
         free(ppinfo);
@@ -126,12 +132,15 @@ fdDir * fs_opendir(const char *pathname){
     }
     
     free(ppinfo);
-    ppinfo == NULL;
+    ppinfo = NULL;
     return dir;
 }
 
 // TO DO:
 struct fs_diriteminfo *fs_readdir(fdDir *dirp){
+    if (dirp == NULL || dirp->directory == NULL || dirp->di == NULL) {
+        return NULL;
+    }
 
     DirectoryEntry* dirEntries = dirp->directory;
     int position = dirp->dirEntryPosition;
@@ -143,6 +152,11 @@ struct fs_diriteminfo *fs_readdir(fdDir *dirp){
             break;
         }
         position++;
+    }
+
+    // Check if we reached the end
+    if (position >= MAX_ENTRIES) {
+        return NULL;  // No more entries
     }
 
     dirp->di->d_reclen = sizeof(struct fs_diriteminfo);
@@ -193,8 +207,22 @@ int fs_closedir(fdDir *dirp){
 
 // Misc directory functions
 char * fs_getcwd(char *pathname, size_t size) {
+    if (pathname == NULL || size == 0) {
+        return NULL;
+    }
+    
+    if (currentWorkingDirectory == rootDirectory) {
+        strncpy(pathname, "/", size);
+        return pathname;
+    }
+    
+    // Get directory name
     strncpy(pathname, currentWorkingDirectory->fileName, size);
-    return(pathname); 
+    
+    // Ensure null-termination
+    pathname[size-1] = '\0';
+    
+    return pathname;
 }
 
 //linux chdir
@@ -230,7 +258,6 @@ int fs_setcwd(char *pathname){
     return 0;
 } 
 
-// TO DO 
 int fs_isFile(char * filename){
     int isDir = 0;
     char* fileStr;
@@ -248,6 +275,7 @@ int fs_isFile(char * filename){
         }
     }
 }	//return 1 if file, 0 otherwise
+
 int fs_isDir(char * pathname){
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
     if(parsePath(pathname, ppinfo) == -1){
@@ -273,29 +301,36 @@ int fs_delete(char* filename){
         int index = ppinfo->index;
         ppinfo->parent[index].inUse = false;
     }
+
+    return 0;
 }	//removes a file
 
-int parsePath(char* path, ppinfo* ppi){
+int parsePath(const char* path, ppinfo* ppi) {
     DirectoryEntry* parent; 
     DirectoryEntry* startParent; 
     char* savePtr; 
-    char* token1, token2;
-
-    if (path == NULL){
+    char pathCopy[256]; // Create a copy of the path since strtok_r modifies the string
+    char* token1, *token2;
+    
+    if (path == NULL) {
         return -1; 
     }
-
-    if (path[0] == '/'){
+    
+    // Make a copy of the path to avoid modifying the const input
+    strncpy(pathCopy, path, 255);
+    pathCopy[255] = '\0';
+    
+    if (pathCopy[0] == '/') {
         startParent = rootDirectory;
     }
     else {
         startParent = currentWorkingDirectory;
     }
     parent = startParent;
-
-    token1 = strtok_r(path, "/", &savePtr);
-    if(token1 == NULL){
-        if(path[0] == '/'){
+    
+    token1 = strtok_r(pathCopy, "/", &savePtr);
+    if (token1 == NULL) {
+        if (pathCopy[0] == '/') {
             ppi->parent = parent;
             ppi->index = -2; 
             ppi->lastElementName = NULL;
@@ -305,29 +340,32 @@ int parsePath(char* path, ppinfo* ppi){
             return -1; 
         }
     }
+    
     int idx = findInDirectory(parent, token1);
-    token2 = strtok_r(NULL, "/", savePtr);
-
-    if(token2 == NULL){
+    token2 = strtok_r(NULL, "/", &savePtr);
+    
+    if (token2 == NULL) {
         ppi->parent = parent;
         ppi->index = idx;
         ppi->lastElementName = token1; 
         return 0; 
     }
     else {
-        if (idx == -1){
+        if (idx == -1) {
             return -2; 
         }
-        if(!isDEaDir(&parent[idx])){
+        if (!isDEaDir(&parent[idx])) {
             return -1; 
         }
         DirectoryEntry* tempParent = loadDir(&parent[idx]);
-        if(parent != startParent){
+        if (parent != startParent) {
             free(parent);
         }
         
         parent = tempParent;
         token1 = token2;
+        
+        return 0;
     }
 }
 
@@ -344,9 +382,33 @@ int findInDirectory(DirectoryEntry* parent, char* token){
     return -1;
 }
 
-// TO DO: 
 DirectoryEntry* loadDir(DirectoryEntry* targetDir){
 
+    // Calculate how many entries we have
+    int numEntries = targetDir->fileSize / sizeof(DirectoryEntry);
+    
+    // Calculate how many blocks are needed to store the directory
+    int blocksNeeded = (targetDir->fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    
+    DirectoryEntry* dirBuffer = (DirectoryEntry*)malloc(targetDir->fileSize);
+    if (dirBuffer == NULL) {
+        return NULL; 
+    }
+    
+    // Read the directory blocks from disk
+    int startBlock = targetDir->startBlock;
+    
+    // LBAread returns the number of blocks actually read
+    if (LBAread(dirBuffer, blocksNeeded, startBlock) != blocksNeeded) {
+        free(dirBuffer);
+        return NULL;
+    }
+    
+    // Update access time for the directory
+    targetDir->lastAccessed = time(NULL);
+
+    return dirBuffer;
+    
 }
 
 // Returns 1 if DE is a directory, 0 if false

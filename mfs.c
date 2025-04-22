@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <freeSpace.h>
 
 DirectoryEntry* rootDirectory = NULL;
 DirectoryEntry* currentWorkingDirectory = NULL;
@@ -305,67 +306,59 @@ int fs_delete(char* filename){
     return 0;
 }	//removes a file
 
-int parsePath(const char* path, ppinfo* ppi) {
-    DirectoryEntry* parent; 
-    DirectoryEntry* startParent; 
-    char* savePtr; 
-    char pathCopy[256]; // Create a copy of the path since strtok_r modifies the string
-    char* token1, *token2;
-    
-    if (path == NULL) {
-        return -1; 
-    }
-    
-    // Make a copy of the path to avoid modifying the const input
-    strncpy(pathCopy, path, 255);
-    pathCopy[255] = '\0';
-    
-    if (pathCopy[0] == '/') {
+int parsePath(char* pathname, ppinfo* ppi){
+    DirectoryEntry* parent;
+    DirectoryEntry* startParent;
+    char* savePtr;
+    char* token1;
+    char* token2;
+
+    if(pathname == NULL) return (-1);
+    if(pathname[0] == '/') {
         startParent = rootDirectory;
-    }
-    else {
+    }else{
         startParent = currentWorkingDirectory;
     }
     parent = startParent;
-    
-    token1 = strtok_r(pathCopy, "/", &savePtr);
-    if (token1 == NULL) {
-        if (pathCopy[0] == '/') {
+
+    token1 = strtok_r(pathname, "/", &savePtr);
+
+    if(token1 == NULL) {
+        if(pathname[0] == '/'){
             ppi->parent = parent;
-            ppi->index = -2; 
+            ppi->index = -2;
             ppi->lastElementName = NULL;
-            return 0; 
-        }
-        else {
-            return -1; 
+            return 0;
+        }else{
+            return -1;
         }
     }
-    
-    int idx = findInDirectory(parent, token1);
-    token2 = strtok_r(NULL, "/", &savePtr);
-    
-    if (token2 == NULL) {
-        ppi->parent = parent;
-        ppi->index = idx;
-        ppi->lastElementName = token1; 
-        return 0; 
-    }
-    else {
-        if (idx == -1) {
-            return -2; 
-        }
-        if (!isDEaDir(&parent[idx])) {
-            return -1; 
-        }
-        DirectoryEntry* tempParent = loadDir(&parent[idx]);
-        if (parent != startParent) {
+
+    while(1){
+        int idx = findInDirectory(parent, token1);
+        token2 = strtok_r(NULL, "/", &savePtr);
+
+        if(token2 == NULL){
+            ppi->parent = parent;
+            ppi->index = idx;
+            ppi->lastElementName = token1;
+            return 0;
+        }else{
+            if(idx == -1){
+                return -2;
+            }
+            if(!isDEaDir(&(parent[idx]))) return (-1);
+
+        DirectoryEntry* tempParent = loadDir(&(parent[idx]));
+
+        if(parent != startParent){
             free(parent);
         }
-        
+
         parent = tempParent;
         token1 = token2;
-        
-        return 0;
+
+        }
     }
 }
 
@@ -383,32 +376,24 @@ int findInDirectory(DirectoryEntry* parent, char* token){
 }
 
 DirectoryEntry* loadDir(DirectoryEntry* targetDir){
-
     // Calculate how many entries we have
     int numEntries = targetDir->fileSize / sizeof(DirectoryEntry);
-    
     // Calculate how many blocks are needed to store the directory
     int blocksNeeded = (targetDir->fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    
     DirectoryEntry* dirBuffer = (DirectoryEntry*)malloc(targetDir->fileSize);
     if (dirBuffer == NULL) {
         return NULL; 
     }
-    
     // Read the directory blocks from disk
     int startBlock = targetDir->startBlock;
-    
     // LBAread returns the number of blocks actually read
     if (LBAread(dirBuffer, blocksNeeded, startBlock) != blocksNeeded) {
         free(dirBuffer);
         return NULL;
     }
-    
     // Update access time for the directory
     targetDir->lastAccessed = time(NULL);
-
     return dirBuffer;
-    
 }
 
 // Returns 1 if DE is a directory, 0 if false

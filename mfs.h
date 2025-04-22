@@ -87,7 +87,7 @@ int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
 int fs_delete(char* filename);	//removes a file
 
 // Helper Functions 
-int parsePath(const char* path, ppinfo* ppi);
+int parsePath(char* path, ppinfo* ppi);
 int findInDirectory(DirectoryEntry* parent, char* token);
 DirectoryEntry* loadDir(DirectoryEntry* targetDir);
 int isDEaDir(DirectoryEntry* targetDir);

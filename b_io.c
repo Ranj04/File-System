@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include "b_io.h"
 #include "createDirectory.h"
+#include "mfs.h"
 
 #define MAXFCBS 20
 #define B_CHUNK_SIZE 512
@@ -70,18 +71,70 @@ b_io_fd b_getFCB ()
 // O_RDONLY, O_WRONLY, or O_RDWR
 b_io_fd b_open (char * filename, int flags)
 	{
-	b_io_fd returnFd;
+	printf("Working: parsing path and locating file");
 
-	//*** TODO ***:  Modify to save or set any information needed
-	//
-	//
-		
-	if (startup == 0) b_init();  //Initialize our system
+	b_io_fd returnFd;
 	
+	if (startup == 0) b_init();  //Initialize our system
+
+	if (filename == NULL || flags <= 0){
+		return -1; 
+	}
+
 	returnFd = b_getFCB();				// get our own file descriptor
-										// check for error - all used FCB's
+	if (returnFd == -1){				// check for error - all used FCB's
+		printf("no free slots available \n");
+		return -1; 
+	}
+
+	char *currentPathname = malloc(strleng(filename) + 1); 
+	if (currentPathname == NULL){
+		printf("malloc failed for pathname \n"); 
+		return -1; 
+	}
+
+	strcpy(currentPathname, filename);
+	// strncpy(currentPathname, filename, strlen(filename));
+    // currentPathname[strlen(filename)] = '\0';
+
+	// parse pathname 
+    ppinfo *info = malloc(sizeof(ppinfo));
+    if (info == NULL) {
+        free(currentPathname);
+        fprintf(stderr, "malloc failed for path info \n");
+        return -1;
+    }
+
+    if (parsePath(currentPathname, info) != 0 || info->index < 0) {
+        free(info);
+        free(currentPathname);
+        fprintf(stderr, "parsePath failed: file not found \n");
+        return -1;
+    }
+
+	DirectoryEntry *fi = &info->parent[info->index];
+
+	// allocate buffer for file
+    fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
+    if (fcbArray[returnFd].buf == NULL) {
+        free(info);
+        free(currentPathname);
+        printf("malloc for buffer failed \n"); 
+        return -1;
+    }
+
+	// MODIFY IF struct f_fcb IS CHANGED
+	fcbArray[returnFd].index = 0;
+    fcbArray[returnFd].buflen = 0;
+    fcbArray[returnFd].currentBlk = 0; 
+    fcbArray[returnFd].numBlocks = (fi->fileSize + B_CHUNK_SIZE - 1) / B_CHUNK_SIZE; 
+    fcbArray[returnFd].de = fi;
+	
+	free(info);
+	free(currentPathname); 
 	
 	return (returnFd);						// all set
+	
 	}
 
 

@@ -82,46 +82,26 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry* parent) {
     }
     
     // Write the directory to disk - handle non-contiguous blocks
-    uint64_t blocksWritten = 0;
-    int currentBlock = startBlock;
+    uint64_t blocksWritten = LBAwrite(newDirectory, blocksNeeded, startBlock);
+    uint8_t* dataPointer = (uint8_t*)newDirectory; 
+
     int bytesRemaining = actualBytesNeeded;
-    int offset = 0;
-    
-    while (bytesRemaining > 0 && currentBlock != BLOCK_RESERVED) {
-        int bytesToWrite = (bytesRemaining < BLOCK_SIZE) ? bytesRemaining : BLOCK_SIZE;
-        
-        // Write a single block
-        if (LBAwrite(((char*)newDirectory) + offset, 1, currentBlock) != 1) {
-            fprintf(stderr, "Error: Failed to write directory block %lu\n", (unsigned long)currentBlock);
-            releaseBlocks(startBlock, blocksNeeded);
+    int currentBlock = startBlock;
+    while (currentBlock != BLOCK_RESERVED && bytesRemaining > 0) {
+        int bytesToWrite = (bytesRemaining > BLOCK_SIZE) ? BLOCK_SIZE : bytesRemaining;
+        int blocksWritten = LBAwrite(dataPointer, 1, currentBlock);
+        if (blocksWritten != 1) {
+            fprintf(stderr, "Error: Failed writing block %d\n", currentBlock);
             free(newDirectory);
             return 0;
         }
-        
-        blocksWritten++;
-        bytesRemaining -= BLOCK_SIZE; 
-        offset += BLOCK_SIZE;         
-        
-        // Get next block in chain
-        if (bytesRemaining > 0) {
-            currentBlock = readFATEntry(currentBlock);
-            
-            // Check for invalid next block
-            if (currentBlock <= 0 && bytesRemaining > 0) {
-                fprintf(stderr, "Error: Unexpected end of block chain\n");
-                releaseBlocks(startBlock, blocksNeeded);
-                free(newDirectory);
-                return 0;
-            }
-        }
-    }
-    
-    if (bytesRemaining > 0) {
-        fprintf(stderr, "Error: Failed to write directory (wrote %lu of %d blocks)\n", 
-               blocksWritten, blocksNeeded);
-        releaseBlocks(startBlock, blocksNeeded);
-        free(newDirectory);
-        return 0;
+ 
+        // move pointer and decrease remaining bytes
+        dataPointer += bytesToWrite;
+        bytesRemaining -= bytesToWrite;
+
+        // move to next block in chain
+        currentBlock = readFATEntry(currentBlock);
     }
     
     //free(newDirectory);
@@ -129,4 +109,3 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry* parent) {
     // Return the starting block
     return startBlock;
 }
-

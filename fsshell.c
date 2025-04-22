@@ -112,7 +112,7 @@ int displayFiles (fdDir * dirp, int flall, int fllong)
 				}
 			else
 				{
-				printf ("%s\n", di->d_name);
+				printf ("This is the file name: %s\n", di->d_name);
 				}
 			}
 		di = fs_readdir (dirp);

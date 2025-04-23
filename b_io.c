@@ -69,35 +69,32 @@ b_io_fd b_getFCB ()
 // Interface to open a buffered file
 // Modification of interface for this assignment, flags match the Linux flags for open
 // O_RDONLY, O_WRONLY, or O_RDWR
-b_io_fd b_open (char * filename, int flags)
-	{
-	printf("Working: parsing path and locating file");
+b_io_fd b_open(char * filename, int flags)
+{
+    b_io_fd returnFd;
+    
+    if (startup == 0) b_init();  //Initialize our system
 
-	b_io_fd returnFd;
-	
-	if (startup == 0) b_init();  //Initialize our system
+    if (filename == NULL || flags <= 0){
+        return -1; 
+    }
 
-	if (filename == NULL || flags <= 0){
-		return -1; 
-	}
+    returnFd = b_getFCB();              // get our own file descriptor
+    if (returnFd == -1){                // check for error - all used FCB's
+        printf("no free slots available \n");
+        return -1; 
+    }
 
-	returnFd = b_getFCB();				// get our own file descriptor
-	if (returnFd == -1){				// check for error - all used FCB's
-		printf("no free slots available \n");
-		return -1; 
-	}
+    // Try to locate the file first
+    char *currentPathname = malloc(strlen(filename) + 1); 
+    if (currentPathname == NULL){
+        printf("malloc failed for pathname \n"); 
+        return -1; 
+    }
 
-	char *currentPathname = malloc(strleng(filename) + 1); 
-	if (currentPathname == NULL){
-		printf("malloc failed for pathname \n"); 
-		return -1; 
-	}
+    strcpy(currentPathname, filename);
 
-	strcpy(currentPathname, filename);
-	// strncpy(currentPathname, filename, strlen(filename));
-    // currentPathname[strlen(filename)] = '\0';
-
-	// parse pathname 
+    // Parse pathname 
     ppinfo *info = malloc(sizeof(ppinfo));
     if (info == NULL) {
         free(currentPathname);
@@ -105,37 +102,173 @@ b_io_fd b_open (char * filename, int flags)
         return -1;
     }
 
-    if (parsePath(currentPathname, info) != 0 || info->index < 0) {
+    int parseResult = parsePath(currentPathname, info);
+    
+    // Check if file already exists
+    if (parseResult == 0 && info->index >= 0) {
+        if (flags & O_CREAT) {
+            DirectoryEntry *fi = &info->parent[info->index];
+			time_t currentTime = time(NULL);
+			fi->lastModified = currentTime;
+			fi->lastAccessed = currentTime;
+			
+			// Write updated directory entry back to disk
+			int parentBlocks = (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+			LBAwrite(info->parent, parentBlocks, info->parent[0].startBlock);
+			
+			free(info);
+			free(currentPathname);
+			fprintf(stderr, "File already exists\n");
+			return -1;
+        }
+        
+        // File exists, open it
+        DirectoryEntry *fi = &info->parent[info->index];
+        
+        // Check if it's a file, not a directory
+        if (fi->isDir) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "Cannot open a directory with b_open\n");
+            return -1;
+        }
+        
+        // allocate buffer for file
+        fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
+        if (fcbArray[returnFd].buf == NULL) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "malloc for buffer failed\n"); 
+            return -1;
+        }
+        
+        // Initialize FCB
+        fcbArray[returnFd].index = 0;
+        fcbArray[returnFd].buflen = 0;
+        fcbArray[returnFd].currentBlk = 0; 
+        fcbArray[returnFd].numBlocks = (fi->fileSize + B_CHUNK_SIZE - 1) / B_CHUNK_SIZE; 
+        fcbArray[returnFd].de = fi;
+    }
+    // If file not found and O_CREAT flag is set, create it
+    else if ((parseResult != 0 || info->index < 0) && (flags & O_CREAT)) {
+        // We need to find the parent directory
+        // Extract the directory path and filename
+        char *lastSlash = strrchr(currentPathname, '/');
+        char parentPath[256] = {0};
+        char *basename;
+        
+        if (lastSlash == NULL) {
+            // No slash, assume current directory
+            strcpy(parentPath, ".");
+            basename = currentPathname;
+        } else {
+            // Extract parent path
+            int pathLen = lastSlash - currentPathname;
+            if (pathLen == 0) {
+                // Root directory case
+                strcpy(parentPath, "/");
+            } else {
+                strncpy(parentPath, currentPathname, pathLen);
+                parentPath[pathLen] = '\0';
+            }
+            basename = lastSlash + 1;
+        }
+        
+        // Find parent directory
+        ppinfo parentInfo;
+        if (parsePath(parentPath, &parentInfo) != 0 || parentInfo.index < 0) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "Parent directory not found\n");
+            return -1;
+        }
+        
+        // Check if a file with the same name already exists in the parent directory
+        DirectoryEntry *parentDir = parentInfo.parent;
+        int maxEntries = parentDir[0].fileSize / sizeof(DirectoryEntry);
+        
+        for (int i = 0; i < maxEntries; i++) {
+            if (parentDir[i].inUse && strcmp(parentDir[i].fileName, basename) == 0) {
+                free(info);
+                free(currentPathname);
+                fprintf(stderr, "File already exists in directory\n");
+                return -1;
+            }
+        }
+        
+        // Find an empty slot in the parent directory
+        int newIndex = -1;
+        for (int i = 2; i < maxEntries; i++) {
+            if (!parentDir[i].inUse) {
+                newIndex = i;
+                break;
+            }
+        }
+        
+        if (newIndex == -1) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "No free slots in directory\n");
+            return -1;
+        }
+        
+        // Initialize the new file entry
+        time_t currentTime = time(NULL);
+        strncpy(parentDir[newIndex].fileName, basename, sizeof(parentDir[newIndex].fileName) - 1);
+        parentDir[newIndex].isDir = false;  // It's a file, not a directory
+        parentDir[newIndex].fileSize = 0;   // Initially empty
+        
+        // Allocate at least one block for the file
+        uint64_t startBlock = allocateBlocks(1);
+        if (startBlock <= 0) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "Failed to allocate blocks for file\n");
+            return -1;
+        }
+        
+        parentDir[newIndex].startBlock = startBlock;
+        parentDir[newIndex].inUse = true;
+        parentDir[newIndex].createdTime = currentTime;
+        parentDir[newIndex].lastModified = currentTime;
+        parentDir[newIndex].lastAccessed = currentTime;
+        
+        // Write parent directory back to disk
+        int parentBlocks = (parentDir[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        if (LBAwrite(parentDir, parentBlocks, parentDir[0].startBlock) != parentBlocks) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "Failed to update parent directory\n");
+            return -1;
+        }
+        
+        // Set up the FCB for the new file
+        fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
+        if (fcbArray[returnFd].buf == NULL) {
+            free(info);
+            free(currentPathname);
+            fprintf(stderr, "malloc for buffer failed\n");
+            return -1;
+        }
+        
+        fcbArray[returnFd].index = 0;
+        fcbArray[returnFd].buflen = 0;
+        fcbArray[returnFd].currentBlk = 0;
+        fcbArray[returnFd].numBlocks = 1;  // Start with one block
+        fcbArray[returnFd].de = &parentDir[newIndex];
+    } else {
+        // File doesn't exist and O_CREAT not specified
         free(info);
         free(currentPathname);
-        fprintf(stderr, "parsePath failed: file not found \n");
+        fprintf(stderr, "parsePath failed: file not found\n");
         return -1;
     }
-
-	DirectoryEntry *fi = &info->parent[info->index];
-
-	// allocate buffer for file
-    fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
-    if (fcbArray[returnFd].buf == NULL) {
-        free(info);
-        free(currentPathname);
-        printf("malloc for buffer failed \n"); 
-        return -1;
-    }
-
-	// MODIFY IF struct f_fcb IS CHANGED
-	fcbArray[returnFd].index = 0;
-    fcbArray[returnFd].buflen = 0;
-    fcbArray[returnFd].currentBlk = 0; 
-    fcbArray[returnFd].numBlocks = (fi->fileSize + B_CHUNK_SIZE - 1) / B_CHUNK_SIZE; 
-    fcbArray[returnFd].de = fi;
-	
-	free(info);
-	free(currentPathname); 
-	
-	return (returnFd);						// all set
-	
-	}
+    
+    free(info);
+    free(currentPathname); 
+    
+    return (returnFd);                  // all set
+}
 
 
 // Interface to seek function	
@@ -275,5 +408,5 @@ int b_read (b_io_fd fd, char * buffer, int count)
 // Interface to Close the file	
 int b_close (b_io_fd fd)
 	{
-
+		
 	}

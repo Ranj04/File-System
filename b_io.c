@@ -366,8 +366,38 @@ int b_write (b_io_fd fd, char * buffer, int count)
 		return (-1); 					//invalid file descriptor
 		}
 		
-		
-	return (0); //Change this
+    if(fcbArray[fd].buf == NULL){//Checks if the file is open
+        return -1;
+    }
+    
+    int orgCount = count;
+    int bytesWritten = 0;
+    if(fcbArray[fd].buflen != 0){
+        if(fcbArray[fd].buflen > count){
+            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, count);
+            fcbArray[fd].buflen -= count;
+            fcbArray[fd].index += count;
+            return count;
+        }else{
+            count -= fcbArray[fd].buflen;
+            bytesWritten = fcbArray[fd].buflen;
+            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, fcbArray[fd].buflen);
+            fcbArray[fd].buflen = 0;
+            fcbArray[fd].index = 0;
+        }
+    }
+    int countBlocks = (count + (B_CHUNK_SIZE - 1)) / B_CHUNK_SIZE;
+    int leftOver = countBlocks * B_CHUNK_SIZE - count;
+    int blocksLeft = fcbArray[fd].numBlocks - fcbArray[fd].currentBlk;
+    if(countBlocks > blocksLeft){
+        countBlocks = blocksLeft;
+    }
+    LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+    fcbArray[fd].currentBlk += countBlocks;
+    bytesWritten += countBlocks * B_CHUNK_SIZE;
+    fcbArray[fd].index = leftOver;
+    fcbArray[fd].buflen = B_CHUNK_SIZE - leftOver;
+	return bytesWritten;
 	}
 
 

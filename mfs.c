@@ -260,51 +260,66 @@ int fs_setcwd(char *pathname){
 } 
 
 int fs_isFile(char * filename){
-    int isDir = 0;
+    int isDirectory = 0;
     char* fileStr;
     char* savePtr;
 
-    fileStr = strtok_r(filename, ".", &savePtr);
+    // If filename includes a ".", then there is no need to do anything else
+    fileStr = strtok_r(filename, ".", &savePtr); 
     if(fileStr != NULL){
         return 1;
     }else{
-        isDir = fs_isDir(filename);
-        if(isDir == 1){
+        // isDir functions the same as isFile, there is no need to write duplicate code
+        isDirectory = fs_isDir(filename);
+        // Directory entries can only be either a file or directory
+        if(isDirectory == 1){
+            // File is a directory
             return 0;
         }else{
+            // File is actually a file
             return 1;
         }
     }
-}	//return 1 if file, 0 otherwise
+}
 
 int fs_isDir(char * pathname){
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
     if(parsePath(pathname, ppinfo) == -1){
-        return -1;
+        // Path does not exist
+        return 0;
     }else{
         int indx = ppinfo->index;
+        // Checks isDir, which holds type for directory entries
         if(ppinfo->parent[indx].isDir == true){
+            // Path is a directory
             free(ppinfo);
             ppinfo = NULL;
             return 1;
         }else{
+            // Path is a file
             free(ppinfo);
             ppinfo = NULL;
             return 0;
         }
     }
-}		//return 1 if directory, 0 otherwise
+}
+
 int fs_delete(char* filename){
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
     if(parsePath(filename, ppinfo) == -1){
-        return -1;
+        // File does no exist
+        return 0;
     }else{
+        // Deletes file by declaring space available
         int index = ppinfo->index;
         ppinfo->parent[index].inUse = false;
+        free(ppinfo);
+        ppinfo = NULL;
+        return 1;
     }
-
-    return 0;
-}	//removes a file
+}
 
 int parsePath(char* pathname, ppinfo* ppi){
     DirectoryEntry* parent;

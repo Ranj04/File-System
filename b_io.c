@@ -366,40 +366,60 @@ int b_write (b_io_fd fd, char * buffer, int count)
 		return (-1); 					//invalid file descriptor
 		}
 		
-    if(fcbArray[fd].buf == NULL){//Checks if the file is open
+    if(fcbArray[fd].de == NULL){//Checks if the file is open
         return -1;
     }
     
-    int orgCount = count;
-    int bytesWritten = 0;
-    if(fcbArray[fd].buflen != 0){
-        if(fcbArray[fd].buflen > count){
+    // How much of the buffer has been filled
+    int bBytesLeft = fcbArray[fd].buflen - fcbArray[fd].index;
+    // Total bytes written to file
+    int bytesWritten = fcbArray[fd].currentBlk*B_CHUNK_SIZE - bBytesLeft;
+    // Bytes left unwritten in file
+    int fBytesLeft = fcbArray[fd].de->fileSize - bytesWritten;
+    // Ensures count is never more than what is left in file
+    if(count >= fBytesLeft){
+        count = fBytesLeft;
+    }
+    // Deal with bytes left in file buffer first
+    if(bBytesLeft != 0){
+        // Fills file buffer
+        if(count <= bBytesLeft){
             memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, count);
             fcbArray[fd].buflen -= count;
-            fcbArray[fd].index += count;
+            if(fcbArray[fd].buflen == 0){
+                // Writes buffer to file
+                LBAwrite(fcbArray[fd].buf, 1, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+                fcbArray[fd].currentBlk++;
+                fcbArray[fd].buflen = B_CHUNK_SIZE;
+                fcbArray[fd].index = 0;
+            }else{
+                // Updates buffer location
+                fcbArray[fd].index += count;
+            }
             return count;
         }else{
-            count -= fcbArray[fd].buflen;
-            bytesWritten = fcbArray[fd].buflen;
-            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, fcbArray[fd].buflen);
-            fcbArray[fd].buflen = 0;
-            fcbArray[fd].index = 0;
+            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, bBytesLeft);
+            LBAwrite(fcbArray[fd].buf, 1, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+            fcbArray[fd].currentBlk++;
+            count -= bBytesLeft;
         }
     }
     int countBlocks = (count + (B_CHUNK_SIZE - 1)) / B_CHUNK_SIZE;
-    int leftOver = countBlocks * B_CHUNK_SIZE - count;
-    int blocksLeft = fcbArray[fd].numBlocks - fcbArray[fd].currentBlk;
-    if(countBlocks > blocksLeft){
-        countBlocks = blocksLeft;
+    int leftOver = 0;
+    if(count % B_CHUNK_SIZE == 0){
+        // Count divides perfectly
+        LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+    }else{
+        // Handles bytes that don't completely fill a block
+        leftOver = countBlocks * B_CHUNK_SIZE - count;
+        countBlocks--;
+        LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+        memcpy(fcbArray[fd].buf, buffer, leftOver);
+        fcbArray[fd].buflen -= leftOver;
+        fcbArray[fd].index += leftOver;
     }
-    LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
-    fcbArray[fd].currentBlk += countBlocks;
-    bytesWritten += countBlocks * B_CHUNK_SIZE;
-    fcbArray[fd].index = leftOver;
-    fcbArray[fd].buflen = B_CHUNK_SIZE - leftOver;
-	return bytesWritten;
+    return count;
 	}
-
 
 
 // Interface to read a buffer

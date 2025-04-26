@@ -443,6 +443,11 @@ int b_write (b_io_fd fd, char * buffer, int count)
 //  +-------------+------------------------------------------------+--------+
 int b_read (b_io_fd fd, char * buffer, int count)
 	{
+	int bytesRead; 				// for our reads
+	int bytesReturned;			// what we will return
+	int part1, part2, part3; 	// holds the three potential copy lengths 
+	int numbersOfBlocksToCopy;	// holds the number of whole blocks that are needed
+	int remainingBytesInBuffer;	// holds how many bytes are left in my buffer
 
 	if (startup == 0) b_init();  //Initialize our system
 
@@ -451,8 +456,108 @@ int b_read (b_io_fd fd, char * buffer, int count)
 		{
 		return (-1); 					//invalid file descriptor
 		}
+	
+	if (fcbArray[fd].de == NULL) {	// File is not open for this fd
+		return -1; 
+	}
+
+	// Number of bytes available to copy from buffer
+	remainingBytesInBuffer = fcbArray[fd].buflen - fcbArray[fd].index;
+
+	// Limit count to file length - i.e. handle End-Of-File 
+	int amountAlreadyDelivered = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) - remainingBytesInBuffer;
+
+	if((count + amountAlreadyDelivered) > fcbArray[fd].de->fileSize) {
+		count = fcbArray[fd].de->fileSize - amountAlreadyDelivered;
+
+		if(count < 0) {
+			printf("ERROR: Count: %d - Delivered: %d - CurBlk: %d - Index: %d\n", count, amountAlreadyDelivered,
+					fcbArray[fd].currentBlk, fcbArray[fd].index);
+		}
+	}
+
+	// Part 1 is the first copy of data which will be from the current buffer 
+	// It will be the lesser of the requested amount or the number of bytes that remain in the buffer 
+
+	if (remainingBytesInBuffer >= count) // we have enough in buffer 
+		{
+		part1 = count; // completely buffered (requested amount is smaller than what remains) 
+		part2 = 0;
+		part3 = 0; 	// Do not need anything from the "next" buffer 
+		}
+	else 
+		{
+		part1 = remainingBytesInBuffer; 	// spanning buffer (or first read) 
+
+		//Part 1 is not enough 0 set part 3 to how much more is needed 
+		part3 = count - remainingBytesInBuffer;  // How much more we still need to copy
+
+		// The Following calculates how many 512 bytes chunks need to be copied to
+		// the callers buffer from the count of what is left to copy
+		numbersOfBlocksToCopy = part3/ B_CHUNK_SIZE; // This is integer math 
+		part2 = numbersOfBlocksToCopy * B_CHUNK_SIZE; 
+
+		// Reduce part 3 by the number of bytes that can be copied in chunks 
+		// Part 3 at this point must be less than the block size 
+		part3 = part3 - part2; // This would be equivalent to part3 % B_CHUNK_SIZE 
+		}
+
+	if(part1 > 0) 	// memcpy part 1 
+		{
+		memcpy (buffer, fcbArray[fd].buf + fcbArray[fd].index, part1);
+		fcbArray[fd].index = fcbArray[fd].index + part1; 
+		}
+	
+	if(part2 > 0) // blocks to copy direct to callers bufffer
+		{
+		// limit blocks to blocks left
+
+		bytesRead = LBAread (buffer+part1, numbersOfBlocksToCopy, fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
+
+		fcbArray[fd].currentBlk += numbersOfBlocksToCopy;
+		part2 = bytesRead * B_CHUNK_SIZE; // might be less if we hit end of the file 
+
+		// Alternative version that only reads one block at a time
+		/*****
+		int tempPart2 = 0; 
+		for (int i = 0; i < numberOfBlocksToCopy; i++){
+			bytesRead = LBAread (buffer + part1 + tempPart2, 1,
+								fcbArray[fd].currentBlk + fcbArray[fd].fi-> location);
+			bytesRead = bytesRead * B_CHUNK_SIZE; 
+			tempPart2 = tempPart2 + bytesRead; 
+			++fcbArray[fd].currentBlk; 
+		}
+		part2 = tempPart2; 
+			*/
+		}
+	if (part3 > 0) // We need to refill our buffer to copy more bytes to user 
+		{
+		// try to read B_CHUNK_SIZE bytes into our buffer 
+		bytesRead = LBAread(fcbArray[fd].buf, 1, 
+							fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
 		
-	return (0);	//Change this
+		bytesRead = bytesRead * B_CHUNK_SIZE;
+
+		fcbArray[fd].currentBlk += 1;
+		// we just did a read into our buffer - reset the offest and buffer length. 
+		fcbArray[fd].index = 0;
+		fcbArray[fd].buflen = bytesRead; // how many bytes are actually in buffer
+
+		if (bytesRead < part3) // not even enough left to satisfy read request from caller 
+			part3 = bytesRead; 
+
+		if (part3 > 0) // memcpy bytesRead 
+			{
+			memcpy(buffer + part1 + part2, fcbArray[fd].buf + fcbArray[fd].index, part3);
+			fcbArray[fd].index = fcbArray[fd].index + part3; // adjust index for copied bytes 
+			}
+		}
+	bytesReturned = part1 + part2 + part3; 
+
+	// Never do the following line. It is here to test the buffer overrun grading code 
+	// buffer[bytesReturned] = '\5';
+	return (bytesReturned);
+
 	}
 	
 // Interface to Close the file	

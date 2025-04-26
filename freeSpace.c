@@ -95,7 +95,7 @@ int allocateBlocks(int numOfBlocks) {
         // Check if this block is free
         FATEntry entry = readFATEntry(currentBlock);
         if (entry == BLOCK_FREE) {
-            printf("Allocating block %d\n", currentBlock);
+            //printf("Allocating block %d\n", currentBlock);
             
             // If this is our first block, save it as the start
             if (startBlock == -1) {

@@ -107,115 +107,67 @@ b_io_fd b_open(char * filename, int flags)
     DirectoryEntry *fi = NULL;
     
     // Check if file already exists
-    if (parseResult == 0 && info->index >= 0) {
-         // File exists
-        fi = &info->parent[info->index];
-
-        if (fi->isDir) {
-            fprintf(stderr, "Cannot open a directory with b_open.\n");
+    if (parseResult == -2 || parseResult == -1) {
             free(info);
             free(currentPathname);
             return -1;
         }
 
+    if (info -> index >= 0){
+        fi = &(info -> parent [info -> index]);
+
+        if (fi -> isDir){
+            free(info);
+            free(currentPathname);
+            printf("cannot open a dir \n");
+            return -1;
+        }
+
         // Handle O_TRUNC flag
-        if ((flags & O_TRUNC) && ((flags & O_WRONLY) || (flags & O_RDWR))) {
+        if (flags & O_TRUNC) {
             fi->fileSize = 0;
-            fi->lastModified = time(NULL);
-            // Update the directory entry on disk
-            int parentBlocks = (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
-            if (LBAwrite(info->parent, parentBlocks, info->parent[0].startBlock) != parentBlocks) {
-                fprintf(stderr, "Failed to update directory entry on disk.\n");
+            LBAwrite(info->parent, (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE, info->parent[0].startBlock);
+        }
+    }
+
+        // File does not exist
+        else if (info->index == -1) {
+            if (flags & O_CREAT) {
+                // Find a free entry in the parent directory
+                int freeIndex = -1;
+                for (int i = 0; i < MAX_ENTRIES; i++) {
+                    if (!info->parent[i].inUse) {
+                        freeIndex = i;
+                        break;
+                    }
+                }
+                if (freeIndex == -1) {
+                    free(info);
+                    free(currentPathname);
+                    return -1;
+                }
+
+                // Create a new file entry
+                fi = &(info->parent[freeIndex]);
+                memset(fi, 0, sizeof(DirectoryEntry));
+                strncpy(fi->fileName, info->lastElementName, sizeof(fi->fileName) - 1);
+                fi->isDir = false;
+                fi->fileSize = 0;
+                fi->startBlock = allocateBlocks(1);  // allocate at least 1 block
+                fi->inUse = true;
+                fi->createdTime = fi->lastModified = fi->lastAccessed = time(NULL);
+
+                // Update parent directory on disk
+                LBAwrite(info->parent, (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE, info->parent[0].startBlock);
+            } else {
+                // Cannot create file if O_CREAT is not set
                 free(info);
                 free(currentPathname);
                 return -1;
             }
         }
-    } else if ((parseResult != 0 || info->index < 0) && (flags & O_CREAT)) {
-        // File does not exist; create it
-        char *lastSlash = strrchr(currentPathname, '/');
-        char parentPath[256] = {0};
-        char *basename;
 
-        if (lastSlash == NULL) {
-            strcpy(parentPath, ".");
-            basename = currentPathname;
-        } else {
-            int pathLen = lastSlash - currentPathname;
-            if (pathLen == 0) {
-                strcpy(parentPath, "/");
-            } else {
-                strncpy(parentPath, currentPathname, pathLen);
-                parentPath[pathLen] = '\0';
-            }
-            basename = lastSlash + 1;
-        }
-
-        ppinfo parentInfo;
-        if (parsePath(parentPath, &parentInfo) != 0 || parentInfo.index < 0) {
-            fprintf(stderr, "Parent directory not found.\n");
-            free(info);
-            free(currentPathname);
-            return -1;
-        }
-
-        DirectoryEntry *parentDir = parentInfo.parent;
-        int maxEntries = parentDir[0].fileSize / sizeof(DirectoryEntry);
-        int newIndex = -1;
-        for (int i = 2; i < maxEntries; i++) {
-            if (!parentDir[i].inUse) {
-                newIndex = i;
-                break;
-            }
-        }
-
-        if (newIndex == -1) {
-            fprintf(stderr, "No free slots in directory.\n");
-            free(info);
-            free(currentPathname);
-            return -1;
-        }
-        
-        // Initialize the new file entry
-        time_t currentTime = time(NULL);
-        strncpy(parentDir[newIndex].fileName, basename, sizeof(parentDir[newIndex].fileName) - 1);
-        parentDir[newIndex].fileName[sizeof(parentDir[newIndex].fileName) - 1] = '\0';
-        parentDir[newIndex].isDir = false;  // It's a file, not a directory
-        parentDir[newIndex].fileSize = 0;   // Initially empty
-        
-        // Allocate at least one block for the file
-        uint64_t startBlock = allocateBlocks(1);
-        if (startBlock <= 0) {
-            free(info);
-            free(currentPathname);
-            fprintf(stderr, "Failed to allocate blocks for file\n");
-            return -1;
-        }
-        
-        parentDir[newIndex].startBlock = startBlock;
-        parentDir[newIndex].inUse = true;
-        parentDir[newIndex].createdTime = currentTime;
-        parentDir[newIndex].lastModified = currentTime;
-        parentDir[newIndex].lastAccessed = currentTime;
-        
-        // Write parent directory back to disk
-        int parentBlocks = (parentDir[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        if (LBAwrite(parentDir, parentBlocks, parentDir[0].startBlock) != parentBlocks) {
-            free(info);
-            free(currentPathname);
-            fprintf(stderr, "Failed to update parent directory\n");
-            return -1;
-        }
-        
-        fi = &parentDir[newIndex];
-        
-        } else {
-            fprintf(stderr, "File not found and O_CREAT not specified.\n");
-            free(info);
-            free(currentPathname);
-            return -1;
-        }
-        
+       
         // Set up the FCB for the new file
         fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
         if (fcbArray[returnFd].buf == NULL) {

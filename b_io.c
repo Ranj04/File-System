@@ -562,6 +562,34 @@ int b_read (b_io_fd fd, char * buffer, int count)
 	
 // Interface to Close the file	
 int b_close (b_io_fd fd)
-	{
-		
-	}
+{
+    if (startup == 0) b_init();  // Initialize if needed
+
+    // Validates the file descriptor
+    if (fd < 0 || fd >= MAXFCBS) {
+        return -1; // Invalid file descriptor
+    }
+
+    // Checks if FCB is actually in use
+    if (fcbArray[fd].buf == NULL) {
+        return -1; // Not an open file
+    }
+
+    // If there are unwritten bytes left in the buffer, this will write them to disk
+    if (fcbArray[fd].index > 0) {
+        LBAwrite(fcbArray[fd].buf, 1, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
+    }
+
+    // Free the buffer
+    free(fcbArray[fd].buf);
+    fcbArray[fd].buf = NULL;
+
+    // Clears the other fields to mark this FCB slot as free
+    fcbArray[fd].index = 0;
+    fcbArray[fd].buflen = 0;
+    fcbArray[fd].currentBlk = 0;
+    fcbArray[fd].numBlocks = 0;
+    fcbArray[fd].de = NULL;
+
+    return 0; // Success
+}

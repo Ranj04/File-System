@@ -80,7 +80,25 @@ int fs_mkdir(const char *pathname, mode_t mode){
 
 }
 
-int fs_rmdir(const char *pathname);
+int fs_rmdir(const char *pathname){
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+
+    if(parsePath(pathname, ppinfo) != 0){
+        free(ppinfo);
+        return -1;
+    }else{
+        int indx = ppinfo->index;
+        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
+        if(!isDEaDir(dir) || ppinfo->lastElementName != NULL){
+            free(ppinfo);
+            return -1;
+        }else{
+            ppinfo->parent[indx].inUse = false;
+            free(ppinfo);
+            return 0;
+        }
+    }
+}
 
 // Directory iteration functions
 fdDir * fs_opendir(const char *pathname){
@@ -308,7 +326,8 @@ int fs_isDir(char * pathname){
     }else{
         int indx = ppinfo->index;
         // Checks isDir, which holds type for directory entries
-        if(ppinfo->parent[indx].isDir == true){
+        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
+        if(isDEaDir(dir) == 1){
             // Path is a directory
             free(ppinfo);
             ppinfo = NULL;
@@ -327,14 +346,18 @@ int fs_delete(char* filename){
 
     if(parsePath(filename, ppinfo) == -1){
         // File does no exist
-        return 0;
+        return -1;
     }else{
-        // Deletes file by declaring space available
-        int index = ppinfo->index;
-        ppinfo->parent[index].inUse = false;
-        free(ppinfo);
-        ppinfo = NULL;
-        return 1;
+        if(fs_isFile(filename) == 1){
+            // Deletes file by declaring space available
+            int indx = ppinfo->index;
+            ppinfo->parent[indx].inUse = false;
+            free(ppinfo);
+            ppinfo = NULL;
+            return 0;
+        }else{
+            return -1;
+        }
     }
 }
 

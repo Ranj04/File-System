@@ -251,7 +251,7 @@ int fs_setcwd(char *pathname){
     // Cleaning up path
     char *savePtr;
     char *newPath = strtok_r(pathname, "/", &savePtr);
-    char *reducedPath = [100];
+    char *reducedPath = malloc(100);
     int i = 0;
     while (newPath != NULL){
         if(strstr(newPath, "..") != NULL){

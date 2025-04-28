@@ -22,6 +22,7 @@
 #include "b_io.h"
 #include "createDirectory.h"
 #include "mfs.h"
+#include "freeSpace.h"
 
 #define MAXFCBS 20
 #define B_CHUNK_SIZE 512

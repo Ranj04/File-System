@@ -248,7 +248,24 @@ int fs_setcwd(char *pathname){
         return -1; // Not a directory 
     }
 
-    /**** Handle cleaning up path name here ****/
+    // Cleaning up path
+    char *savePtr;
+    char *newPath = strtok_r(pathname, "/", &savePtr);
+    char *reducedPath = [100];
+    int i = 0;
+    while (newPath != NULL){
+        if(strstr(newPath, "..") != NULL){
+            i = 0;
+        }else if(strstr(newPath, ".") == NULL){
+            reducedPath[i] = newPath;
+            i++;
+        }
+    }
+    char *finalPath[i];
+    for(int j = 0; j < i; j++){
+        finalPath[j] = reducedPath[j];
+        printf("/%s", finalPath[j]);
+    }
 
     // Set CWD to the target directory
     currentWorkingDirectory = &(ppinfo->parent[ppinfo->index]); 

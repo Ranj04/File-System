@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <freeSpace.h>
+#include "freeSpace.h"
 
 DirectoryEntry* rootDirectory = NULL;
 DirectoryEntry* currentWorkingDirectory = NULL;
@@ -82,19 +82,44 @@ int fs_mkdir(const char *pathname, mode_t mode){
 
 int fs_rmdir(const char *pathname){
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    int firstBlock;
+    int totalBlocks;
 
+    // Checks if directory exits
     if(parsePath(pathname, ppinfo) != 0){
         free(ppinfo);
         return -1;
     }else{
         int indx = ppinfo->index;
         DirectoryEntry  *dir = &(ppinfo->parent[indx]);
-        if(!isDEaDir(dir) || ppinfo->lastElementName != NULL){
+        // Checks if directory really is a directory
+        if(!isDEaDir(dir)){
             free(ppinfo);
             return -1;
         }else{
-            ppinfo->parent[indx].inUse = false;
+            // Checks if directory is empty
+            for(int i = 0; i < MAX_ENTRIES; i++){
+                if(dir[i].inUse == true){
+                    return -1;
+                }
+            }
+            // Removes directory by freeing the memory tied to it
+            firstBlock = dir->startBlock;
+            totalBlocks = (dir->fileSize + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
+            releaseBlocks(firstBlock, totalBlocks);
+            strcpy(dir->fileName, "NULL");
+            dir->permissions = 0;
+            dir->fileSize = 0;
+            dir->startBlock = 0;
+            dir->createdTime = 0;
+            dir->lastModified = 0;
+            dir->lastAccessed = 0;
+            dir->isDir = NULL;
+            dir->inUse = false;
+            free(dir);
             free(ppinfo);
+            dir = NULL;
+            ppinfo = NULL;
             return 0;
         }
     }
@@ -295,24 +320,36 @@ int fs_setcwd(char *pathname){
 } 
 
 int fs_isFile(char * filename){
-    int isDirectory = 0;
-    char* fileStr;
-    char* savePtr;
+    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    char *savePtr;
+    char *fileStr;
 
     // If filename includes a ".", then there is no need to do anything else
     fileStr = strtok_r(filename, ".", &savePtr); 
     if(fileStr != NULL){
         return 1;
     }else{
-        // isDir functions the same as isFile, there is no need to write duplicate code
-        isDirectory = fs_isDir(filename);
-        // Directory entries can only be either a file or directory
-        if(isDirectory == 1){
-            // File is a directory
+        if(parsePath(filename, ppinfo) == -1){
+            // Path does not exist
             return 0;
-        }else{
+        }
+        int indx = ppinfo->index;
+        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
+        // Checks isDir, which holds type for directory entries
+        if(isDEaDir(dir) != 1){
             // File is actually a file
+            free(ppinfo);
+            free(dir);
+            ppinfo = NULL;
+            dir = NULL;
             return 1;
+        }else{
+            // File is a directory
+            free(ppinfo);
+            free(dir);
+            ppinfo = NULL;
+            dir = NULL;
+            return 0;
         }
     }
 }
@@ -343,14 +380,28 @@ int fs_isDir(char * pathname){
 
 int fs_delete(char* filename){
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    int indx;
+    int totalBlocks;
+    int firstBlock;
 
     if(parsePath(filename, ppinfo) == -1){
         // File does no exist
         return -1;
     }else{
         if(fs_isFile(filename) == 1){
-            // Deletes file by declaring space available
+            // Deletes file by freeing the memory associated with it
             int indx = ppinfo->index;
+            firstBlock = ppinfo->parent[indx].startBlock;
+            totalBlocks = (ppinfo->parent[indx].fileSize + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
+            releaseBlocks(firstBlock, totalBlocks);
+            strcpy(ppinfo->parent[indx].fileName, "NULL");
+            ppinfo->parent[indx].permissions = 0;
+            ppinfo->parent[indx].fileSize = 0;
+            ppinfo->parent[indx].startBlock = 0;
+            ppinfo->parent[indx].createdTime = 0;
+            ppinfo->parent[indx].lastModified = 0;
+            ppinfo->parent[indx].lastAccessed = 0;
+            ppinfo->parent[indx].isDir = NULL;
             ppinfo->parent[indx].inUse = false;
             free(ppinfo);
             ppinfo = NULL;

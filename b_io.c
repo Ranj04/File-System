@@ -297,6 +297,11 @@ int b_write (b_io_fd fd, char * buffer, int count)
     if(fcbArray[fd].de == NULL){//Checks if the file is open
         return -1;
     }
+
+    // Check if file is set to read only
+    if(fcbArray[fd].flags == 0){
+        return -1;
+    }
     
     // How much of the buffer has been filled
     int bBytesLeft = fcbArray[fd].buflen - fcbArray[fd].index;

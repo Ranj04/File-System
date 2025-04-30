@@ -69,15 +69,13 @@ b_io_fd b_getFCB ()
 	}
 	
 // Interface to open a buffered file
-// Modification of interface for this assignment, flags match the Linux flags for open
-// O_RDONLY, O_WRONLY, or O_RDWR
 b_io_fd b_open(char * filename, int flags)
 {
     b_io_fd returnFd;
     
     if (startup == 0) b_init();  //Initialize our system
 
-    if (filename == NULL || flags <= 0){
+    if (filename == NULL || flags < 0){
         return -1; 
     }
 
@@ -87,7 +85,7 @@ b_io_fd b_open(char * filename, int flags)
         return -1; 
     }
 
-    // Duplicate filename to avoid modifying orignal 
+    // Duplicate filename to avoid modifying original 
     char *currentPathname = malloc(strlen(filename) + 1); 
     if (currentPathname == NULL){
         printf("malloc failed for pathname \n"); 
@@ -107,96 +105,125 @@ b_io_fd b_open(char * filename, int flags)
     int parseResult = parsePath(currentPathname, info);
     DirectoryEntry *fi = NULL;
     
-    // Check if file already exists
-    if (parseResult == -2 || parseResult == -1) {
-            free(info);
-            free(currentPathname);
-            return -1;
-        }
+    if (parseResult == -1) {
+        free(info);
+        free(currentPathname);
+        return -1;
+    }
+    
+    if (parseResult == -2 && !(flags & O_CREAT)) {
+        free(info);
+        free(currentPathname);
+        return -1;
+    }
 
-    if (info -> index >= 0){
-        fi = &(info -> parent [info -> index]);
+    // File exists
+    if (info->index >= 0){
+        fi = &(info->parent[info->index]);
 
-        if (fi -> isDir){
+        if (fi->isDir){
             free(info);
             free(currentPathname);
             printf("cannot open a dir \n");
             return -1;
         }
 
-        // Handle O_TRUNC flag
+        // Handle O_TRUNC flag - reset file size if file exists and O_TRUNC is set
         if (flags & O_TRUNC) {
             fi->fileSize = 0;
             LBAwrite(info->parent, (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE, info->parent[0].startBlock);
         }
     }
-
-        // File does not exist
-        else if (info->index == -1) {
-            if (flags & O_CREAT) {
-                // Find a free entry in the parent directory
-                int freeIndex = -1;
-                for (int i = 0; i < MAX_ENTRIES; i++) {
-                    if (!info->parent[i].inUse) {
-                        freeIndex = i;
-                        break;
-                    }
+    // File does not exist
+    else if (info->index == -1 || parseResult == -2) {
+        if (flags & O_CREAT) {
+            // Find a free entry in the parent directory
+            int freeIndex = -1;
+            for (int i = 0; i < MAX_ENTRIES; i++) {
+                if (!info->parent[i].inUse) {
+                    freeIndex = i;
+                    break;
                 }
-                if (freeIndex == -1) {
-                    free(info);
-                    free(currentPathname);
-                    return -1;
-                }
+            }
+            if (freeIndex == -1) {
+                free(info);
+                free(currentPathname);
+                return -1; // No free entry in directory
+            }
 
-                // Create a new file entry
-                fi = &(info->parent[freeIndex]);
-                memset(fi, 0, sizeof(DirectoryEntry));
-                strncpy(fi->fileName, info->lastElementName, sizeof(fi->fileName) - 1);
-                fi->isDir = false;
-                fi->fileSize = 0;
-                fi->startBlock = allocateBlocks(1);  // allocate at least 1 block
-                fi->inUse = true;
-                fi->createdTime = fi->lastModified = fi->lastAccessed = time(NULL);
-
-                // Update parent directory on disk
-                LBAwrite(info->parent, (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE, info->parent[0].startBlock);
-            } else {
-                // Cannot create file if O_CREAT is not set
+            // Create a new file entry
+            fi = &(info->parent[freeIndex]);
+            memset(fi, 0, sizeof(DirectoryEntry));
+            strncpy(fi->fileName, info->lastElementName, sizeof(fi->fileName) - 1);
+            fi->isDir = false;
+            fi->fileSize = 0;
+            fi->permissions = 0777; // Add default permissions
+            fi->startBlock = allocateBlocks(1);  // allocate at least 1 block
+            if (fi->startBlock == 0) {
+                // Failed to allocate blocks
                 free(info);
                 free(currentPathname);
                 return -1;
             }
-        }
+            fi->inUse = true;
+            fi->createdTime = fi->lastModified = fi->lastAccessed = time(NULL);
 
-       
-        // Set up the FCB for the new file
-        fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
-        if (fcbArray[returnFd].buf == NULL) {
+            // Update parent directory on disk
+            LBAwrite(info->parent, (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE, info->parent[0].startBlock);
+        } else {
+            // Cannot open non-existent file if O_CREAT is not set
             free(info);
             free(currentPathname);
-            fprintf(stderr, "malloc for buffer failed\n");
             return -1;
         }
-        
-        fcbArray[returnFd].index = 0;
-        fcbArray[returnFd].buflen = 0;
-        fcbArray[returnFd].currentBlk = 0;
-        fcbArray[returnFd].numBlocks = 1;  // Start with one block
-        fcbArray[returnFd].de = fi;
-        fcbArray[returnFd].flags = flags;
-    
-    // Handle O_APPEND flag
-    if (flags & O_APPEND) {
-        fcbArray[returnFd].index = fi->fileSize % B_CHUNK_SIZE;
-        fcbArray[returnFd].currentBlk = fi->fileSize / B_CHUNK_SIZE;
+    }
+
+    // Allocate and set up the buffer
+    fcbArray[returnFd].buf = malloc(B_CHUNK_SIZE);
+    if (fcbArray[returnFd].buf == NULL) {
+        free(info);
+        free(currentPathname);
+        fprintf(stderr, "malloc for buffer failed\n");
+        return -1;
     }
     
+    // Initialize buffer variables
+    fcbArray[returnFd].index = 0;
+    fcbArray[returnFd].currentBlk = 0;
+    fcbArray[returnFd].numBlocks = (fi->fileSize + B_CHUNK_SIZE - 1) / B_CHUNK_SIZE;  // Calculate blocks needed
+    fcbArray[returnFd].de = fi;
+    fcbArray[returnFd].flags = flags;
+    
+    // For read operations, load the first block if file is not empty
+    if ((flags & O_ACCMODE) != O_WRONLY && fi->fileSize > 0) {
+        LBAread(fcbArray[returnFd].buf, 1, fi->startBlock);
+        // Set buflen to either block size or file size, whichever is smaller
+        fcbArray[returnFd].buflen = (fi->fileSize < B_CHUNK_SIZE) ? fi->fileSize : B_CHUNK_SIZE;
+    } else {
+        // Empty buffer for write-only or empty files
+        fcbArray[returnFd].buflen = 0;
+    }
+    
+    // Handle O_APPEND flag - position at end of file
+    if (flags & O_APPEND) {
+        fcbArray[returnFd].currentBlk = fi->fileSize / B_CHUNK_SIZE;
+        fcbArray[returnFd].index = fi->fileSize % B_CHUNK_SIZE;
+        
+        // If appending and not at the start of a block, load the current block
+        if (fcbArray[returnFd].index > 0 && (flags & O_ACCMODE) != O_RDONLY) {
+            LBAread(fcbArray[returnFd].buf, 1, fi->startBlock + fcbArray[returnFd].currentBlk);
+        }
+    }
+    
+    // Update access time
+    fi->lastAccessed = time(NULL);
+    
+    // Clean up temporary allocations
     free(info);
     free(currentPathname); 
     
-    return (returnFd);                  // all set
+    return (returnFd);  // Return the file descriptor
 }
-
 
 
 // Interface to seek function	
@@ -282,78 +309,89 @@ int b_seek (b_io_fd fd, off_t offset, int whence)
 	}
 
 
-
-// Interface to write function	
-int b_write (b_io_fd fd, char * buffer, int count)
-	{
-	if (startup == 0) b_init();  //Initialize our system
-
-	// check that fd is between 0 and (MAXFCBS-1)
-	if ((fd < 0) || (fd >= MAXFCBS))
-		{
-		return (-1); 					//invalid file descriptor
-		}
-		
-    if(fcbArray[fd].de == NULL){//Checks if the file is open
-        return -1;
-    }
-
-    // Check if file is set to read only
-    if(fcbArray[fd].flags == 0){
-        return -1;
+int b_write(b_io_fd fd, char *buffer, int count) {
+    if (startup == 0) b_init();  // Initialize our system
+    
+    // Check that fd is between 0 and (MAXFCBS-1)
+    if ((fd < 0) || (fd >= MAXFCBS)) {
+        return (-1);  // Invalid file descriptor
     }
     
-    // How much of the buffer has been filled
-    int bBytesLeft = fcbArray[fd].buflen - fcbArray[fd].index;
-    // Total bytes written to file
-    int bytesWritten = fcbArray[fd].currentBlk*B_CHUNK_SIZE - bBytesLeft;
-    // Bytes left unwritten in file
-    int fBytesLeft = fcbArray[fd].de->fileSize - bytesWritten;
-    // Ensures count is never more than what is left in file
-    if(count >= fBytesLeft){
-        count = fBytesLeft;
+    // Check if file is open
+    if (fcbArray[fd].de == NULL) {
+        return -1;  // File not open
     }
-    // Deal with bytes left in file buffer first
-    if(bBytesLeft != 0){
-        // Fills file buffer
-        if(count <= bBytesLeft){
-            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, count);
-            fcbArray[fd].buflen -= count;
-            if(fcbArray[fd].buflen == 0){
-                // Writes buffer to file
+    
+    // Check write permission using proper flag masking
+    if ((fcbArray[fd].flags & O_ACCMODE) == O_RDONLY) {
+        return -1;  // File not opened for writing
+    }
+    
+    // If nothing to write, return 0
+    if (count <= 0) {
+        return 0;
+    }
+    
+    int bytesWritten = 0;      // Bytes written so far
+    int bytesToWrite = count;  // Bytes remaining to write
+    int currentPos = 0;        // Current position in buffer
+    
+    // Process the data in smaller chunks to avoid buffer issues
+    while (bytesToWrite > 0) {
+        // If there's space in the current buffer, use it
+        if (fcbArray[fd].index < B_CHUNK_SIZE) {
+            int spaceInBuffer = B_CHUNK_SIZE - fcbArray[fd].index;
+            int chunkSize = (bytesToWrite < spaceInBuffer) ? bytesToWrite : spaceInBuffer;
+            
+            // Copy data to the buffer
+            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer + currentPos, chunkSize);
+            fcbArray[fd].index += chunkSize;
+            bytesWritten += chunkSize;
+            currentPos += chunkSize;
+            bytesToWrite -= chunkSize;
+            
+            // If buffer is now full, write it to disk
+            if (fcbArray[fd].index == B_CHUNK_SIZE) {
+                
                 LBAwrite(fcbArray[fd].buf, 1, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
-                fcbArray[fd].currentBlk++;
-                fcbArray[fd].buflen = B_CHUNK_SIZE;
-                fcbArray[fd].index = 0;
-            }else{
-                // Updates buffer location
-                fcbArray[fd].index += count;
+                fcbArray[fd].index = 0;  // Reset buffer index
+                fcbArray[fd].currentBlk++;  // Move to next block
+                
             }
-            return count;
-        }else{
-            memcpy(fcbArray[fd].buf + fcbArray[fd].index, buffer, bBytesLeft);
-            LBAwrite(fcbArray[fd].buf, 1, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
-            fcbArray[fd].currentBlk++;
-            count -= bBytesLeft;
+        }
+        else {
+            // This shouldn't happen if the code above is working correctly,
+            // but just in case, reset the buffer index
+            fcbArray[fd].index = 0;
         }
     }
-    int countBlocks = (count + (B_CHUNK_SIZE - 1)) / B_CHUNK_SIZE;
-    int leftOver = 0;
-    if(count % B_CHUNK_SIZE == 0){
-        // Count divides perfectly
-        LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
-    }else{
-        // Handles bytes that don't completely fill a block
-        leftOver = countBlocks * B_CHUNK_SIZE - count;
-        countBlocks--;
-        LBAwrite(buffer, countBlocks, fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk);
-        memcpy(fcbArray[fd].buf, buffer, leftOver);
-        fcbArray[fd].buflen -= leftOver;
-        fcbArray[fd].index += leftOver;
+    
+    // Update file size if needed
+    int newFileSize = fcbArray[fd].currentBlk * B_CHUNK_SIZE + fcbArray[fd].index;
+    
+    if (newFileSize > fcbArray[fd].de->fileSize) {
+        
+        fcbArray[fd].de->fileSize = newFileSize;
+        fcbArray[fd].de->lastModified = time(NULL);
+        
+        // Update the directory entry in the parent directory
+        if (fcbArray[fd].de >= rootDirectory && fcbArray[fd].de < rootDirectory + MAX_ENTRIES) {
+            // File is in root directory
+            int blocksNeeded = (rootDirectory[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            LBAwrite(rootDirectory, blocksNeeded, rootDirectory[0].startBlock);
+        } 
+        else if (fcbArray[fd].de >= currentWorkingDirectory && 
+                fcbArray[fd].de < currentWorkingDirectory + MAX_ENTRIES) {
+            // File is in current directory
+            int blocksNeeded = (currentWorkingDirectory[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            LBAwrite(currentWorkingDirectory, blocksNeeded, currentWorkingDirectory[0].startBlock);
+        }
+        else {
+            //printf("Could not determine parent directory for file\n");
+        }
     }
-    return count;
-	}
-
+    return bytesWritten;
+}
 
 // Interface to read a buffer
 
@@ -375,123 +413,107 @@ int b_write (b_io_fd fd, char * buffer, int count)
 //  | Part1       |  Part 2                                        | Part3  |
 //  +-------------+------------------------------------------------+--------+
 int b_read (b_io_fd fd, char * buffer, int count)
-	{
-	int bytesRead; 				// for our reads
-	int bytesReturned;			// what we will return
-	int part1, part2, part3; 	// holds the three potential copy lengths 
-	int numbersOfBlocksToCopy;	// holds the number of whole blocks that are needed
-	int remainingBytesInBuffer;	// holds how many bytes are left in my buffer
+{
+    int bytesRead; 				// for our reads
+    int bytesReturned;			// what we will return
+    int part1, part2, part3; 	// holds the three potential copy lengths 
+    int numbersOfBlocksToCopy;	// holds the number of whole blocks that are needed
+    int remainingBytesInBuffer;	// holds how many bytes are left in my buffer
 
-	if (startup == 0) b_init();  //Initialize our system
+    if (startup == 0) b_init();  //Initialize our system
 
-	// check that fd is between 0 and (MAXFCBS-1)
-	if ((fd < 0) || (fd >= MAXFCBS))
-		{
-		return (-1); 					//invalid file descriptor
-		}
-	
-	if (fcbArray[fd].de == NULL) {	// File is not open for this fd
-		return -1; 
-	}
+    // check that fd is between 0 and (MAXFCBS-1)
+    if ((fd < 0) || (fd >= MAXFCBS))
+    {
+        return (-1); 					//invalid file descriptor
+    }
+    
+    if (fcbArray[fd].de == NULL) {	// File is not open for this fd
+        return -1; 
+    }
 
-	// Number of bytes available to copy from buffer
-	remainingBytesInBuffer = fcbArray[fd].buflen - fcbArray[fd].index;
+    // Limit count to file length
+    int currentFilePosition = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) + fcbArray[fd].index;
+    if (currentFilePosition + count > fcbArray[fd].de->fileSize) {
+        count = fcbArray[fd].de->fileSize - currentFilePosition;
+    }
 
-	// Limit count to file length - i.e. handle End-Of-File 
-	int amountAlreadyDelivered = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) - remainingBytesInBuffer;
+    // Exit early if no bytes to read
+    if (count <= 0) {
+        return 0;
+    }
 
-	if((count + amountAlreadyDelivered) > fcbArray[fd].de->fileSize) {
-		count = fcbArray[fd].de->fileSize - amountAlreadyDelivered;
+    // Number of bytes available to copy from buffer
+    remainingBytesInBuffer = fcbArray[fd].buflen - fcbArray[fd].index;
 
-		if(count < 0) {
-			printf("ERROR: Count: %d - Delivered: %d - CurBlk: %d - Index: %d\n", count, amountAlreadyDelivered,
-					fcbArray[fd].currentBlk, fcbArray[fd].index);
-		}
-	}
+    // Part 1 is the first copy of data which will be from the current buffer 
+    if (remainingBytesInBuffer >= count) // we have enough in buffer 
+    {
+        part1 = count; // completely buffered (requested amount is smaller than what remains) 
+        part2 = 0;
+        part3 = 0; 	// Do not need anything from the "next" buffer 
+    }
+    else 
+    {
+        part1 = remainingBytesInBuffer; 	// spanning buffer (or first read) 
 
-	// Part 1 is the first copy of data which will be from the current buffer 
-	// It will be the lesser of the requested amount or the number of bytes that remain in the buffer 
+        //Part 1 is not enough 0 set part 3 to how much more is needed 
+        part3 = count - remainingBytesInBuffer;  // How much more we still need to copy
 
-	if (remainingBytesInBuffer >= count) // we have enough in buffer 
-		{
-		part1 = count; // completely buffered (requested amount is smaller than what remains) 
-		part2 = 0;
-		part3 = 0; 	// Do not need anything from the "next" buffer 
-		}
-	else 
-		{
-		part1 = remainingBytesInBuffer; 	// spanning buffer (or first read) 
+        // The Following calculates how many 512 bytes chunks need to be copied to
+        // the callers buffer from the count of what is left to copy
+        numbersOfBlocksToCopy = part3 / B_CHUNK_SIZE; // This is integer math 
+        part2 = numbersOfBlocksToCopy * B_CHUNK_SIZE; 
 
-		//Part 1 is not enough 0 set part 3 to how much more is needed 
-		part3 = count - remainingBytesInBuffer;  // How much more we still need to copy
+        // Reduce part 3 by the number of bytes that can be copied in chunks 
+        // Part 3 at this point must be less than the block size 
+        part3 = part3 - part2; 
+    }
 
-		// The Following calculates how many 512 bytes chunks need to be copied to
-		// the callers buffer from the count of what is left to copy
-		numbersOfBlocksToCopy = part3/ B_CHUNK_SIZE; // This is integer math 
-		part2 = numbersOfBlocksToCopy * B_CHUNK_SIZE; 
+    if(part1 > 0) 	// memcpy part 1 
+    {
+        memcpy(buffer, fcbArray[fd].buf + fcbArray[fd].index, part1);
+        fcbArray[fd].index += part1; 
+    }
+    
+    if(part2 > 0) // blocks to copy direct to callers buffer
+    {
+        int tempPart2 = 0; 
+        for (int i = 0; i < numbersOfBlocksToCopy; i++){
+            bytesRead = LBAread(buffer + part1 + tempPart2, 1,
+                            fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
+            bytesRead = bytesRead * B_CHUNK_SIZE; 
+            tempPart2 += bytesRead; 
+            ++fcbArray[fd].currentBlk; 
+        }
+        part2 = tempPart2; 
+    }
+    if (part3 > 0) // We need to refill our buffer to copy more bytes to user 
+    {
+        // try to read B_CHUNK_SIZE bytes into our buffer 
+        bytesRead = LBAread(fcbArray[fd].buf, 1, 
+                            fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
+        
+        bytesRead = bytesRead * B_CHUNK_SIZE;
 
-		// Reduce part 3 by the number of bytes that can be copied in chunks 
-		// Part 3 at this point must be less than the block size 
-		part3 = part3 - part2; // This would be equivalent to part3 % B_CHUNK_SIZE 
-		}
+        fcbArray[fd].currentBlk += 1;
+        // we just did a read into our buffer - reset the offset and buffer length. 
+        fcbArray[fd].index = 0;
+        fcbArray[fd].buflen = bytesRead; // how many bytes are actually in buffer
 
-	if(part1 > 0) 	// memcpy part 1 
-		{
-		memcpy (buffer, fcbArray[fd].buf + fcbArray[fd].index, part1);
-		fcbArray[fd].index = fcbArray[fd].index + part1; 
-		}
-	
-	if(part2 > 0) // blocks to copy direct to callers bufffer
-		{
-		// limit blocks to blocks left
+        if (bytesRead < part3) // not even enough left to satisfy read request from caller 
+            part3 = bytesRead; 
 
-		bytesRead = LBAread (buffer+part1, numbersOfBlocksToCopy, fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
+        if (part3 > 0) // memcpy bytesRead 
+        {
+            memcpy(buffer + part1 + part2, fcbArray[fd].buf + fcbArray[fd].index, part3);
+            fcbArray[fd].index += part3; // adjust index for copied bytes 
+        }
+    }
+    bytesReturned = part1 + part2 + part3; 
 
-		fcbArray[fd].currentBlk += numbersOfBlocksToCopy;
-		part2 = bytesRead * B_CHUNK_SIZE; // might be less if we hit end of the file 
-
-		// Alternative version that only reads one block at a time
-		/*****
-		int tempPart2 = 0; 
-		for (int i = 0; i < numberOfBlocksToCopy; i++){
-			bytesRead = LBAread (buffer + part1 + tempPart2, 1,
-								fcbArray[fd].currentBlk + fcbArray[fd].fi-> location);
-			bytesRead = bytesRead * B_CHUNK_SIZE; 
-			tempPart2 = tempPart2 + bytesRead; 
-			++fcbArray[fd].currentBlk; 
-		}
-		part2 = tempPart2; 
-			*/
-		}
-	if (part3 > 0) // We need to refill our buffer to copy more bytes to user 
-		{
-		// try to read B_CHUNK_SIZE bytes into our buffer 
-		bytesRead = LBAread(fcbArray[fd].buf, 1, 
-							fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
-		
-		bytesRead = bytesRead * B_CHUNK_SIZE;
-
-		fcbArray[fd].currentBlk += 1;
-		// we just did a read into our buffer - reset the offest and buffer length. 
-		fcbArray[fd].index = 0;
-		fcbArray[fd].buflen = bytesRead; // how many bytes are actually in buffer
-
-		if (bytesRead < part3) // not even enough left to satisfy read request from caller 
-			part3 = bytesRead; 
-
-		if (part3 > 0) // memcpy bytesRead 
-			{
-			memcpy(buffer + part1 + part2, fcbArray[fd].buf + fcbArray[fd].index, part3);
-			fcbArray[fd].index = fcbArray[fd].index + part3; // adjust index for copied bytes 
-			}
-		}
-	bytesReturned = part1 + part2 + part3; 
-
-	// Never do the following line. It is here to test the buffer overrun grading code 
-	// buffer[bytesReturned] = '\5';
-	return (bytesReturned);
-
-	}
+    return (bytesReturned);
+}
 	
 // Interface to Close the file	
 int b_close (b_io_fd fd)

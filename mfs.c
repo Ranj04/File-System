@@ -17,6 +17,9 @@
 #include <stdio.h>
 #include "freeSpace.h"
 
+char currentWorkingPath[MAXDIR_LEN] = "/";
+
+
 DirectoryEntry* rootDirectory = NULL;
 DirectoryEntry* currentWorkingDirectory = NULL;
 
@@ -255,13 +258,8 @@ char * fs_getcwd(char *pathname, size_t size) {
         return NULL;
     }
     
-    if (currentWorkingDirectory == rootDirectory) {
-        strncpy(pathname, "/", size);
-        return pathname;
-    }
-    
     // Get directory name
-    strncpy(pathname, currentWorkingDirectory->fileName, size);
+    strncpy(pathname, currentWorkingPath, size);
     
     // Ensure null-termination
     pathname[size-1] = '\0';
@@ -271,47 +269,75 @@ char * fs_getcwd(char *pathname, size_t size) {
 
 //linux chdir
 int fs_setcwd(char *pathname){
+    if (pathname == NULL) {
+        return -1;
+    }
+    
     ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    if (ppinfo == NULL) {
+        return -1;
+    }
 
-    if (parsePath(pathname, ppinfo) == -1) {
+    char *pathCopy = strdup(pathname);
+    if (!pathCopy) {
+        free(ppinfo);
+        return -1;
+    }
+
+    if (parsePath(pathCopy, ppinfo) == -1) {
+        free(ppinfo); 
+        free(pathCopy);
         return -1; 
     }
 
     // Special case for the root directory 
     if (ppinfo-> index == -2){
         currentWorkingDirectory = rootDirectory;
-
+        strncpy(currentWorkingPath, "/", MAXDIR_LEN);
         free(ppinfo);
-        ppinfo == NULL;
+        ppinfo = NULL;
         return 0;
     }
 
-    if(fs_isDir(pathname) != 1){
+  
+   DirectoryEntry *target = &(ppinfo->parent[ppinfo->index]);
+
+    // Make sure it's a directory
+    if (!target->isDir) {
         free(ppinfo);
-        return -1; // Not a directory 
+        free(pathCopy);
+        return -1;
     }
 
-    // Cleaning up path
-    char *savePtr;
-    char *newPath = strtok_r(pathname, "/", &savePtr);
-    char *reducedPath = malloc(100);
-    int i = 0;
-    while (newPath != NULL){
-        if(strstr(newPath, "..") != NULL){
-            i = 0;
-        }else if(strstr(newPath, ".") == NULL){
-            reducedPath[i] = newPath;
-            i++;
+    // Allocate space for new directory block
+    int blocksToRead = (target->fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    DirectoryEntry *newDir = malloc(sizeof(DirectoryEntry) * MAX_ENTRIES);
+    if (newDir == NULL) {
+        free(ppinfo);
+        free(pathCopy);
+        return -1;
+    }
+
+    // Read directory block into memory
+    LBAread(newDir, blocksToRead, target->startBlock);
+
+    // Set CWD to new block
+    currentWorkingDirectory = newDir;
+
+    if (pathname[0] == '/') {
+    // Absolute path — copy directly
+        strncpy(currentWorkingPath, pathname, MAXDIR_LEN);
+        currentWorkingPath[MAXDIR_LEN - 1] = '\0';
+    } else {
+        // Relative path — append to existing path
+        if (strcmp(currentWorkingPath, "/") == 0) {
+            snprintf(currentWorkingPath, MAXDIR_LEN, "/%s", pathname);
+        } else {
+            strncat(currentWorkingPath, "/", MAXDIR_LEN - strlen(currentWorkingPath) - 1);
+            strncat(currentWorkingPath, pathname, MAXDIR_LEN- strlen(currentWorkingPath) - 1);
         }
     }
-    char *finalPath[i];
-    for(int j = 0; j < i; j++){
-        finalPath[j] = reducedPath[j];
-        printf("/%s", finalPath[j]);
-    }
-
-    // Set CWD to the target directory
-    currentWorkingDirectory = &(ppinfo->parent[ppinfo->index]); 
+    currentWorkingPath[MAXDIR_LEN - 1] = '\0';
 
     free(ppinfo);
     ppinfo = NULL;

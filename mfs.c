@@ -573,3 +573,64 @@ int fs_stat(const char *path, struct fs_stat *buf){
 
     return 0; 
 }
+
+int fs_mv(const char *srcPath, const char *destPath) {
+    ppinfo *srcInfo = malloc(sizeof(ppinfo));
+    ppinfo *destInfo = malloc(sizeof(ppinfo));
+
+    char *srcCopy = strdup(srcPath);
+    char *destCopy = strdup(destPath);
+
+    if (parsePath(srcCopy, srcInfo) != 0 || srcInfo->index == -1) {
+        printf("mv error: Source does not exist.\n");
+        goto fail;
+    }
+
+    if (parsePath(destCopy, destInfo) == 0 && destInfo->index != -1) {
+        printf("mv error: Destination already exists.\n");
+        goto fail;
+    }
+
+    DirectoryEntry *srcEntry = &(srcInfo->parent[srcInfo->index]);
+
+    // Find a free entry in the destination directory
+    int destFreeIndex = -1;
+    for (int i = 0; i < MAX_ENTRIES; i++) {
+        if (!destInfo->parent[i].inUse) {
+            destFreeIndex = i;
+            break;
+        }
+    }
+
+    if (destFreeIndex == -1) {
+        printf("mv error: Destination directory full.\n");
+        goto fail;
+    }
+
+    // Copy entry metadata
+    DirectoryEntry *destEntry = &destInfo->parent[destFreeIndex];
+    memcpy(destEntry, srcEntry, sizeof(DirectoryEntry));
+    strncpy(destEntry->fileName, destInfo->lastElementName, sizeof(destEntry->fileName) - 1);
+    destEntry->fileName[sizeof(destEntry->fileName) - 1] = '\0';
+    destEntry->inUse = true;
+    destEntry->lastModified = time(NULL);
+
+    // Remove old entry
+    srcEntry->inUse = false;
+    strcpy(srcEntry->fileName, "NULL");
+
+    // Write changes
+    int srcBlocks = (srcInfo->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int destBlocks = (destInfo->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    LBAwrite(srcInfo->parent, srcBlocks, srcInfo->parent[0].startBlock);
+    LBAwrite(destInfo->parent, destBlocks, destInfo->parent[0].startBlock);
+
+    free(srcInfo); free(destInfo); free(srcCopy); free(destCopy);
+    return 0;
+
+fail:
+    free(srcInfo); free(destInfo); free(srcCopy); free(destCopy);
+    return -1;
+}
+

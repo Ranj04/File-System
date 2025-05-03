@@ -96,6 +96,7 @@ int parsePath(char* path, ppinfo* ppi);
 int findInDirectory(DirectoryEntry* parent, char* token);
 DirectoryEntry* loadDir(DirectoryEntry* targetDir);
 int isDEaDir(DirectoryEntry* targetDir);
+int fs_mv(const char* srcPath, const char* destPath);
 
 
 // This is the strucutre that is filled in from a call to fs_stat

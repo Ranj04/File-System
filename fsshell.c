@@ -361,12 +361,25 @@ int cmd_cp (int argcnt, char *argvec[])
 ****************************************************/
 int cmd_mv (int argcnt, char *argvec[])
 	{
-#if (CMDMV_ON == 1)				
-	return -99;
-	// **** TODO ****  For you to implement	
+#if (CMDMV_ON == 1)
+    if (argcnt != 3) {
+        printf("Usage: mv srcfile destfile\n");
+        return -1;
+    }
+
+    char *src = argvec[1];
+    char *dest = argvec[2];
+
+    int result = fs_mv(src, dest);
+    if (result != 0) {
+        printf("Failed to move '%s' to '%s'\n", src, dest);
+        return -1;
+    }
+
+    return 0;
 #endif
-	return 0;
-	}
+    return -1;
+}
 
 /****************************************************
 *  Make Directory commmand

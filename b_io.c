@@ -414,105 +414,119 @@ int b_write(b_io_fd fd, char *buffer, int count) {
 //  +-------------+------------------------------------------------+--------+
 int b_read (b_io_fd fd, char * buffer, int count)
 {
-    int bytesRead; 				// for our reads
-    int bytesReturned;			// what we will return
-    int part1, part2, part3; 	// holds the three potential copy lengths 
-    int numbersOfBlocksToCopy;	// holds the number of whole blocks that are needed
-    int remainingBytesInBuffer;	// holds how many bytes are left in my buffer
+   if (startup == 0) b_init();  // Initialize our system
 
-    if (startup == 0) b_init();  //Initialize our system
-
-    // check that fd is between 0 and (MAXFCBS-1)
-    if ((fd < 0) || (fd >= MAXFCBS))
-    {
-        return (-1); 					//invalid file descriptor
-    }
-    
-    if (fcbArray[fd].de == NULL) {	// File is not open for this fd
-        return -1; 
-    }
-
-    // Limit count to file length
-    int currentFilePosition = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) + fcbArray[fd].index;
-    if (currentFilePosition + count > fcbArray[fd].de->fileSize) {
-        count = fcbArray[fd].de->fileSize - currentFilePosition;
-    }
-
-    // Exit early if no bytes to read
-    if (count <= 0) {
-        return 0;
-    }
-
-    // Number of bytes available to copy from buffer
-    remainingBytesInBuffer = fcbArray[fd].buflen - fcbArray[fd].index;
-
-    // Part 1 is the first copy of data which will be from the current buffer 
-    if (remainingBytesInBuffer >= count) // we have enough in buffer 
-    {
-        part1 = count; // completely buffered (requested amount is smaller than what remains) 
-        part2 = 0;
-        part3 = 0; 	// Do not need anything from the "next" buffer 
-    }
-    else 
-    {
-        part1 = remainingBytesInBuffer; 	// spanning buffer (or first read) 
-
-        //Part 1 is not enough 0 set part 3 to how much more is needed 
-        part3 = count - remainingBytesInBuffer;  // How much more we still need to copy
-
-        // The Following calculates how many 512 bytes chunks need to be copied to
-        // the callers buffer from the count of what is left to copy
-        numbersOfBlocksToCopy = part3 / B_CHUNK_SIZE; // This is integer math 
-        part2 = numbersOfBlocksToCopy * B_CHUNK_SIZE; 
-
-        // Reduce part 3 by the number of bytes that can be copied in chunks 
-        // Part 3 at this point must be less than the block size 
-        part3 = part3 - part2; 
-    }
-
-    if(part1 > 0) 	// memcpy part 1 
-    {
-        memcpy(buffer, fcbArray[fd].buf + fcbArray[fd].index, part1);
-        fcbArray[fd].index += part1; 
-    }
-    
-    if(part2 > 0) // blocks to copy direct to callers buffer
-    {
-        int tempPart2 = 0; 
-        for (int i = 0; i < numbersOfBlocksToCopy; i++){
-            bytesRead = LBAread(buffer + part1 + tempPart2, 1,
-                            fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
-            bytesRead = bytesRead * B_CHUNK_SIZE; 
-            tempPart2 += bytesRead; 
-            ++fcbArray[fd].currentBlk; 
-        }
-        part2 = tempPart2; 
-    }
-    if (part3 > 0) // We need to refill our buffer to copy more bytes to user 
-    {
-        // try to read B_CHUNK_SIZE bytes into our buffer 
-        bytesRead = LBAread(fcbArray[fd].buf, 1, 
-                            fcbArray[fd].currentBlk + fcbArray[fd].de->startBlock);
-        
-        bytesRead = bytesRead * B_CHUNK_SIZE;
-
-        fcbArray[fd].currentBlk += 1;
-        // we just did a read into our buffer - reset the offset and buffer length. 
-        fcbArray[fd].index = 0;
-        fcbArray[fd].buflen = bytesRead; // how many bytes are actually in buffer
-
-        if (bytesRead < part3) // not even enough left to satisfy read request from caller 
-            part3 = bytesRead; 
-
-        if (part3 > 0) // memcpy bytesRead 
-        {
-            memcpy(buffer + part1 + part2, fcbArray[fd].buf + fcbArray[fd].index, part3);
-            fcbArray[fd].index += part3; // adjust index for copied bytes 
-        }
-    }
-    bytesReturned = part1 + part2 + part3; 
-
-    return (bytesReturned);
+   // Check for valid file descriptor
+   if ((fd < 0) || (fd >= MAXFCBS))
+   {
+       return (-1); // Invalid file descriptor
+   }
+   
+   // Check if file is open
+   if (fcbArray[fd].de == NULL)
+   {
+       return (-1); // File not open
+   }
+   
+   // Check read permission
+   if ((fcbArray[fd].flags & O_ACCMODE) == O_WRONLY)
+   {
+       return (-1); // File not opened for reading
+   }
+   
+   // Calculate current file position and adjust count if it goes beyond EOF
+   int currentPosition = (fcbArray[fd].currentBlk * B_CHUNK_SIZE) + fcbArray[fd].index;
+   int fileSize = fcbArray[fd].de->fileSize;
+   
+   // EOF
+   if (currentPosition >= fileSize)
+   {
+       return 0; 
+   }
+   
+   if (currentPosition + count > fileSize)
+   {
+       count = fileSize - currentPosition; // Adjust count to not read past EOF
+   }
+   
+   // No bytes to read
+   if (count <= 0)
+   {
+       return 0;
+   }
+   
+   int totalBytesRead = 0;    // Total bytes read so far
+   int bytesRemaining = count; // Bytes still needed
+   
+   // Part 1: Read from current buffer if there's data available
+   int bytesInBuffer = fcbArray[fd].buflen - fcbArray[fd].index;
+   if (bytesInBuffer > 0)
+   {
+       int part1Size = (bytesInBuffer < bytesRemaining) ? bytesInBuffer : bytesRemaining;
+       memcpy(buffer, fcbArray[fd].buf + fcbArray[fd].index, part1Size);
+       
+       fcbArray[fd].index += part1Size;
+       totalBytesRead += part1Size;
+       bytesRemaining -= part1Size;
+   }
+   
+   // If we've satisfied the request, return
+   if (bytesRemaining == 0)
+   {
+       return totalBytesRead;
+   }
+   
+   // Part 2: Read whole blocks directly into user's buffer
+   int wholeBlocksToRead = bytesRemaining / B_CHUNK_SIZE;
+   if (wholeBlocksToRead > 0)
+   {
+       int blockStart = fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk;
+       
+       // Read multiple blocks at once if possible
+       int blocksRead = LBAread(buffer + totalBytesRead, wholeBlocksToRead, blockStart);
+       int bytesReadInBlocks = blocksRead * B_CHUNK_SIZE;
+       
+       totalBytesRead += bytesReadInBlocks;
+       bytesRemaining -= bytesReadInBlocks;
+       fcbArray[fd].currentBlk += blocksRead;
+   }
+   
+   // If we've satisfied the request or something went wrong, return
+   if (bytesRemaining == 0 || bytesRemaining >= B_CHUNK_SIZE)
+   {
+       return totalBytesRead;
+   }
+   
+   // Part 3: Read the last partial block into our buffer, then copy to user
+   if (bytesRemaining > 0)
+   {
+       // Load the next block into our buffer
+       int blockToRead = fcbArray[fd].de->startBlock + fcbArray[fd].currentBlk;
+       int blocksRead = LBAread(fcbArray[fd].buf, 1, blockToRead);
+       
+       if (blocksRead > 0)
+       {
+           // Calculate how many bytes we actually read
+           fcbArray[fd].buflen = B_CHUNK_SIZE;
+           fcbArray[fd].index = 0;
+           
+           // Make sure we don't read more than what's available
+           int part3Size = (bytesRemaining < fcbArray[fd].buflen) ? 
+                            bytesRemaining : fcbArray[fd].buflen;
+           
+           // Copy from our buffer to user's buffer
+           memcpy(buffer + totalBytesRead, fcbArray[fd].buf, part3Size);
+           
+           fcbArray[fd].index = part3Size;
+           totalBytesRead += part3Size;
+           fcbArray[fd].currentBlk++;
+       }
+   }
+   
+   // Update the last accessed time
+   fcbArray[fd].de->lastAccessed = time(NULL);
+   
+   return totalBytesRead;
 }
 	
 // Interface to Close the file	

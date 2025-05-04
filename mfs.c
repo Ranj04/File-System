@@ -25,30 +25,39 @@ DirectoryEntry* currentWorkingDirectory = NULL;
 
 // Key directory functions
 int fs_mkdir(const char *pathname, mode_t mode){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(pathname);
+    if (pathCopy == NULL) {
+        free(info);
+        return -1;
+    }
 
-    if(parsePath(pathname, ppinfo) != 0){
-        free(ppinfo);
+    if(parsePath(pathCopy, info) != 0){
+        free(info);
+        free(pathCopy);
         return -1;
     }
 
     //Check if a file/directory with the same name already exists in that location
-    if(ppinfo->index != -1){
-        free(ppinfo);
+    if(info->index != -1){
+        free(info);
+        free(pathCopy);
         return -1;
     }
 
-    uint64_t startBlock = createDirectory(MAX_ENTRIES, ppinfo->parent);
+    uint64_t startBlock = createDirectory(MAX_ENTRIES, info->parent);
 
     if(startBlock == 0){
-        free(ppinfo);
+        free(info);
+        free(pathCopy);
         return -1;  // Failed to create directory
     }
 
     // Find a free entry in the parent directory for the new directory
     int freeIndex = -1;
     for(int i = 0; i < MAX_ENTRIES; i++){
-        if(!ppinfo->parent[i].inUse){
+        if(!info->parent[i].inUse){
             freeIndex = i;
             break;
         }
@@ -56,115 +65,153 @@ int fs_mkdir(const char *pathname, mode_t mode){
     
     if(freeIndex == -1){
         // No free space in parent directory
-        free(ppinfo);
+        free(info);
+        free(pathCopy);
         return -1;
     }
 
     // Initialize the new directory entry in the parent
     time_t currentTime = time(NULL);
-    strncpy(ppinfo->parent[freeIndex].fileName, ppinfo->lastElementName, sizeof(ppinfo->parent[freeIndex].fileName) - 1);
-    ppinfo->parent[freeIndex].isDir = true;
-    ppinfo->parent[freeIndex].fileSize = MAX_ENTRIES * sizeof(DirectoryEntry);  // Approximate size
-    ppinfo->parent[freeIndex].startBlock = startBlock;
-    ppinfo->parent[freeIndex].inUse = true;
-    ppinfo->parent[freeIndex].createdTime = currentTime;
-    ppinfo->parent[freeIndex].lastModified = currentTime;
-    ppinfo->parent[freeIndex].lastAccessed = currentTime;
+    strncpy(info->parent[freeIndex].fileName, info->lastElementName, sizeof(info->parent[freeIndex].fileName) - 1);
+    info->parent[freeIndex].isDir = true;
+    info->parent[freeIndex].fileSize = MAX_ENTRIES * sizeof(DirectoryEntry);  // Approximate size
+    info->parent[freeIndex].startBlock = startBlock;
+    info->parent[freeIndex].inUse = true;
+    info->parent[freeIndex].createdTime = currentTime;
+    info->parent[freeIndex].lastModified = currentTime;
+    info->parent[freeIndex].lastAccessed = currentTime;
     
     // Write the updated parent directory back to disk
-    int parentBlocks = (ppinfo->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    if(LBAwrite(ppinfo->parent, parentBlocks, ppinfo->parent[0].startBlock) != parentBlocks){
-        free(ppinfo);
+    int parentBlocks = (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    if(LBAwrite(info->parent, parentBlocks, info->parent[0].startBlock) != parentBlocks){
+        free(info);
+        free(pathCopy);
         return -1;  // Failed to update parent directory
     }
     
-    free(ppinfo);
+    free(info);
+    free(pathCopy);
     return 0;
-
 }
 
 int fs_rmdir(const char *pathname){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
-    int firstBlock;
-    int totalBlocks;
-
-    // Checks if directory exits
-    if(parsePath(pathname, ppinfo) != 0){
-        free(ppinfo);
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    // Create a copy of pathname since parsePath modifies it
+    char *pathCopy = strdup(pathname);
+    if (pathCopy == NULL) {
+        free(info);
         return -1;
-    }else{
-        int indx = ppinfo->index;
-        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
-        // Checks if directory really is a directory
-        if(!isDEaDir(dir)){
-            free(ppinfo);
-            return -1;
-        }else{
-            // Checks if directory is empty
-            for(int i = 0; i < MAX_ENTRIES; i++){
-                if(dir[i].inUse == true){
-                    return -1;
-                }
-            }
-            // Removes directory by freeing the memory tied to it
-            firstBlock = dir->startBlock;
-            totalBlocks = (dir->fileSize + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
-            releaseBlocks(firstBlock, totalBlocks);
-            strcpy(dir->fileName, "NULL");
-            dir->permissions = 0;
-            dir->fileSize = 0;
-            dir->startBlock = 0;
-            dir->createdTime = 0;
-            dir->lastModified = 0;
-            dir->lastAccessed = 0;
-            dir->isDir = NULL;
-            dir->inUse = false;
-            free(dir);
-            free(ppinfo);
-            dir = NULL;
-            ppinfo = NULL;
-            return 0;
+    }
+
+    // Check if directory exists
+    if(parsePath(pathCopy, info) != 0 || info->index < 0){
+        free(info);
+        free(pathCopy);
+        return -1;
+    }
+    
+    // Get the directory entry
+    DirectoryEntry *dirEntry = &(info->parent[info->index]);
+    
+    // Check if it's actually a directory
+    if(!dirEntry->isDir){
+        free(info);
+        free(pathCopy);
+        return -1;
+    }
+    
+    // Load the directory to check if it's empty
+    DirectoryEntry *dirEntries = loadDir(dirEntry);
+    if (dirEntries == NULL) {
+        free(info);
+        free(pathCopy);
+        return -1;
+    }
+    
+    // Check if directory is empty (skip . and .. entries)
+    for(int i = 2; i < MAX_ENTRIES; i++){
+        if(dirEntries[i].inUse){
+            free(dirEntries);
+            free(info);
+            free(pathCopy);
+            return -1;  // Directory not empty
         }
     }
+    
+    // Free the directory blocks
+    int firstBlock = dirEntry->startBlock;
+    int totalBlocks = (dirEntry->fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    releaseBlocks(firstBlock, totalBlocks);
+    
+    // Clear the directory entry in parent
+    memset(dirEntry, 0, sizeof(DirectoryEntry));
+    dirEntry->inUse = false;
+    
+    // Write the updated parent directory back to disk
+    int parentBlocks = (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    if(LBAwrite(info->parent, parentBlocks, info->parent[0].startBlock) != parentBlocks){
+        free(dirEntries);
+        free(info);
+        free(pathCopy);
+        return -1;  // Failed to update parent directory
+    }
+    
+    // Clean up
+    free(dirEntries);
+    free(info);
+    free(pathCopy);
+    return 0;
 }
 
 // Directory iteration functions
 fdDir * fs_opendir(const char *pathname){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(pathname);
+    if (pathCopy == NULL) {
+        free(info);
+        return NULL;
+    }
 
-    if(parsePath(pathname, ppinfo) != 0){
-        free(ppinfo);
+    if(parsePath(pathCopy, info) != 0){
+        free(info);
+        free(pathCopy);
         return NULL;
     }
 
     DirectoryEntry* targetDir;
 
-    if(ppinfo->index == -2){
+    if(info->index == -2){
         targetDir = rootDirectory;
     }
-    else if(ppinfo->index == -1){
-        free(ppinfo);
+    else if(info->index == -1){
+        free(info);
+        free(pathCopy);
         return NULL;
     } else {
-        targetDir = &(ppinfo->parent[ppinfo->index]);
+        targetDir = &(info->parent[info->index]);
         if (!isDEaDir(targetDir)) {
-            free(ppinfo);
+            free(info);
+            free(pathCopy);
             return NULL;
         }
     }
 
     DirectoryEntry* dirEntries = loadDir(targetDir);
-        if (dirEntries == NULL) {
-            free(ppinfo);
-            return NULL;
-        }
+    if (dirEntries == NULL) {
+        free(info);
+        free(pathCopy);
+        return NULL;
+    }
 
     fdDir* dir = malloc(sizeof(fdDir));
-        if (dir == NULL) {
-            free(dirEntries);
-            free(ppinfo);
-            return NULL;
-        }
+    if (dir == NULL) {
+        free(dirEntries);
+        free(info);
+        free(pathCopy);
+        return NULL;
+    }
 
     // Initialize the directory structure
     dir->directory = dirEntries;
@@ -174,12 +221,13 @@ fdDir * fs_opendir(const char *pathname){
     if (dir->di == NULL) {
         free(dir);
         free(dirEntries);
-        free(ppinfo);
+        free(info);
+        free(pathCopy);
         return NULL;
     }
     
-    free(ppinfo);
-    ppinfo = NULL;
+    free(info);
+    free(pathCopy);
     return dir;
 }
 
@@ -267,44 +315,119 @@ char * fs_getcwd(char *pathname, size_t size) {
     return pathname;
 }
 
+char* normalizePathname(const char* path) {
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    char* normalized = malloc(MAXDIR_LEN);
+    if (normalized == NULL) {
+        return NULL;
+    }
+    
+    // For absolute paths, start from root
+    if (path[0] == '/') {
+        strcpy(normalized, "/");
+    } else {
+        // For relative paths, start from current directory
+        strcpy(normalized, currentWorkingPath);
+    }
+    
+    char* pathCopy = strdup(path);
+    char* token = strtok(pathCopy, "/");
+    
+    while (token != NULL) {
+        if (strcmp(token, ".") == 0) {
+            // Stay in current directory, do nothing
+        } else if (strcmp(token, "..") == 0) {
+            // Go up one directory
+            char* lastSlash = strrchr(normalized, '/');
+            if (lastSlash != NULL && lastSlash != normalized) {
+                *lastSlash = '\0';  // Remove last component
+            } else if (lastSlash == normalized) {
+                // At root, can't go up further
+                strcpy(normalized, "/");
+            }
+        } else {
+            // Regular directory name
+            if (strcmp(normalized, "/") != 0) {
+                strcat(normalized, "/");
+            }
+            strcat(normalized, token);
+        }
+        
+        token = strtok(NULL, "/");
+    }
+    
+    // If result is empty, set to root
+    if (strlen(normalized) == 0) {
+        strcpy(normalized, "/");
+    }
+    
+    free(pathCopy);
+    return normalized;
+}
+
 //linux chdir
 int fs_setcwd(char *pathname){
     if (pathname == NULL) {
         return -1;
     }
     
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
-    if (ppinfo == NULL) {
+    // Normalize the pathname first
+    char* normalizedPath = normalizePathname(pathname);
+    if (normalizedPath == NULL) {
+        return -1;
+    }
+    
+    ppinfo* info = malloc(sizeof(ppinfo));
+    if (info == NULL) {
+        free(normalizedPath);
         return -1;
     }
 
-    char *pathCopy = strdup(pathname);
-    if (!pathCopy) {
-        free(ppinfo);
+    // Make a copy since parsePath modifies the string
+    char* pathCopy = strdup(normalizedPath);
+    if (pathCopy == NULL) {
+        free(info);
+        free(normalizedPath);
         return -1;
     }
 
-    if (parsePath(pathCopy, ppinfo) == -1) {
-        free(ppinfo); 
+    // Use copy for parsing
+    if (parsePath(pathCopy, info) == -1) {
+        free(info); 
+        free(normalizedPath);
         free(pathCopy);
         return -1; 
     }
 
     // Special case for the root directory 
-    if (ppinfo-> index == -2){
+    if (info->index == -2){
+        if (currentWorkingDirectory != rootDirectory) {
+            free(currentWorkingDirectory);
+        }
         currentWorkingDirectory = rootDirectory;
         strncpy(currentWorkingPath, "/", MAXDIR_LEN);
-        free(ppinfo);
-        ppinfo = NULL;
+        free(info);
+        free(normalizedPath);
+        free(pathCopy);
         return 0;
     }
 
-  
-   DirectoryEntry *target = &(ppinfo->parent[ppinfo->index]);
+    if (info->index < 0) {
+        free(info);
+        free(normalizedPath);
+        free(pathCopy);
+        return -1;
+    }
+
+    DirectoryEntry *target = &(info->parent[info->index]);
 
     // Make sure it's a directory
     if (!target->isDir) {
-        free(ppinfo);
+        free(info);
+        free(normalizedPath);
         free(pathCopy);
         return -1;
     }
@@ -313,7 +436,8 @@ int fs_setcwd(char *pathname){
     int blocksToRead = (target->fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
     DirectoryEntry *newDir = malloc(sizeof(DirectoryEntry) * MAX_ENTRIES);
     if (newDir == NULL) {
-        free(ppinfo);
+        free(info);
+        free(normalizedPath);
         free(pathCopy);
         return -1;
     }
@@ -321,120 +445,136 @@ int fs_setcwd(char *pathname){
     // Read directory block into memory
     LBAread(newDir, blocksToRead, target->startBlock);
 
+    // Free the old current working directory if it's not the root
+    if (currentWorkingDirectory != rootDirectory) {
+        free(currentWorkingDirectory);
+    }
+
     // Set CWD to new block
     currentWorkingDirectory = newDir;
 
-    if (pathname[0] == '/') {
-    // Absolute path — copy directly
-        strncpy(currentWorkingPath, pathname, MAXDIR_LEN);
-        currentWorkingPath[MAXDIR_LEN - 1] = '\0';
-    } else {
-        // Relative path — append to existing path
-        if (strcmp(currentWorkingPath, "/") == 0) {
-            snprintf(currentWorkingPath, MAXDIR_LEN, "/%s", pathname);
-        } else {
-            strncat(currentWorkingPath, "/", MAXDIR_LEN - strlen(currentWorkingPath) - 1);
-            strncat(currentWorkingPath, pathname, MAXDIR_LEN- strlen(currentWorkingPath) - 1);
-        }
-    }
+    // Update the current working path
+    strncpy(currentWorkingPath, normalizedPath, MAXDIR_LEN);
     currentWorkingPath[MAXDIR_LEN - 1] = '\0';
 
-    free(ppinfo);
-    ppinfo = NULL;
-
+    free(info);
+    free(normalizedPath);
+    free(pathCopy);
     return 0;
-} 
+}
 
 int fs_isFile(char * filename){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
-    char *savePtr;
-    char *fileStr;
-
-    // If filename includes a ".", then there is no need to do anything else
-    fileStr = strtok_r(filename, ".", &savePtr); 
-    if(fileStr != NULL){
-        return 1;
-    }else{
-        if(parsePath(filename, ppinfo) == -1){
-            // Path does not exist
-            return 0;
-        }
-        int indx = ppinfo->index;
-        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
-        // Checks isDir, which holds type for directory entries
-        if(isDEaDir(dir) != 1){
-            // File is actually a file
-            free(ppinfo);
-            free(dir);
-            ppinfo = NULL;
-            dir = NULL;
-            return 1;
-        }else{
-            // File is a directory
-            free(ppinfo);
-            free(dir);
-            ppinfo = NULL;
-            dir = NULL;
-            return 0;
-        }
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(filename);
+    if (pathCopy == NULL) {
+        free(info);
+        return 0;
     }
+    
+    if(parsePath(pathCopy, info) == -1){
+        // Path does not exist
+        free(info);
+        free(pathCopy);
+        return 0;
+    }
+    
+    int indx = info->index;
+    if (indx < 0) {
+        free(info);
+        free(pathCopy);
+        return 0;
+    }
+    
+    DirectoryEntry *entry = &(info->parent[indx]);
+    int isFile = !entry->isDir;  // If it's not a directory, it's a file
+    
+    free(info);
+    free(pathCopy);
+    return isFile ? 1 : 0;
 }
 
 int fs_isDir(char * pathname){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
-
-    if(parsePath(pathname, ppinfo) == -1){
-        // Path does not exist
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(pathname);
+    if (pathCopy == NULL) {
+        free(info);
         return 0;
-    }else{
-        int indx = ppinfo->index;
-        // Checks isDir, which holds type for directory entries
-        DirectoryEntry  *dir = &(ppinfo->parent[indx]);
-        if(isDEaDir(dir) == 1){
-            // Path is a directory
-            free(ppinfo);
-            ppinfo = NULL;
-            return 1;
-        }else{
-            // Path is a file
-            free(ppinfo);
-            ppinfo = NULL;
-            return 0;
-        }
     }
+
+    if(parsePath(pathCopy, info) == -1){
+        // Path does not exist
+        free(info);
+        free(pathCopy);
+        return 0;
+    }
+    
+    int indx = info->index;
+    if (indx < 0) {
+        free(info);
+        free(pathCopy);
+        return 0;
+    }
+    
+    // Checks isDir, which holds type for directory entries
+    DirectoryEntry  *dir = &(info->parent[indx]);
+    int result = isDEaDir(dir);
+    
+    free(info);
+    free(pathCopy);
+    return result;
 }
 
 int fs_delete(char* filename){
-    ppinfo* ppinfo = malloc(sizeof(ppinfo));
-    int indx;
-    int totalBlocks;
-    int firstBlock;
-
-    if(parsePath(filename, ppinfo) == -1){
-        // File does no exist
+    ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(filename);
+    if (pathCopy == NULL) {
+        free(info);
         return -1;
-    }else{
-        if(fs_isFile(filename) == 1){
-            // Deletes file by freeing the memory associated with it
-            int indx = ppinfo->index;
-            firstBlock = ppinfo->parent[indx].startBlock;
-            totalBlocks = (ppinfo->parent[indx].fileSize + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
-            releaseBlocks(firstBlock, totalBlocks);
-            strcpy(ppinfo->parent[indx].fileName, "NULL");
-            ppinfo->parent[indx].permissions = 0;
-            ppinfo->parent[indx].fileSize = 0;
-            ppinfo->parent[indx].startBlock = 0;
-            ppinfo->parent[indx].createdTime = 0;
-            ppinfo->parent[indx].lastModified = 0;
-            ppinfo->parent[indx].lastAccessed = 0;
-            ppinfo->parent[indx].isDir = NULL;
-            ppinfo->parent[indx].inUse = false;
-            free(ppinfo);
-            ppinfo = NULL;
-            return 0;
-        }else{
-            return -1;
+    }
+
+    if(parsePath(pathCopy, info) == -1){
+        // File does not exist
+        free(info);
+        free(pathCopy);
+        return -1;
+    }
+    
+    if(fs_isFile(filename) == 1){
+        // Deletes file by freeing the memory associated with it
+        int indx = info->index;
+        int firstBlock = info->parent[indx].startBlock;
+        int totalBlocks = (info->parent[indx].fileSize + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
+        releaseBlocks(firstBlock, totalBlocks);
+        
+        // Clear the directory entry
+        strcpy(info->parent[indx].fileName, "NULL");
+        info->parent[indx].permissions = 0;
+        info->parent[indx].fileSize = 0;
+        info->parent[indx].startBlock = 0;
+        info->parent[indx].createdTime = 0;
+        info->parent[indx].lastModified = 0;
+        info->parent[indx].lastAccessed = 0;
+        info->parent[indx].isDir = false;
+        info->parent[indx].inUse = false;
+        
+        // Write the updated parent directory back to disk
+        int parentBlocks = (info->parent[0].fileSize + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        if(LBAwrite(info->parent, parentBlocks, info->parent[0].startBlock) != parentBlocks){
+            free(info);
+            free(pathCopy);
+            return -1;  // Failed to update parent directory
         }
+        
+        free(info);
+        free(pathCopy);
+        return 0;
+    }else{
+        free(info);
+        free(pathCopy);
+        return -1;
     }
 }
 
@@ -543,19 +683,27 @@ int fs_stat(const char *path, struct fs_stat *buf){
 		return -1; 
 	}
 
-    // need to allocate memeory to parse the directory path we want
+    // need to allocate memory to parse the directory path we want
 	ppinfo* info = malloc(sizeof(ppinfo));
+    
+    char *pathCopy = strdup(path);
+    if (pathCopy == NULL) {
+        free(info);
+        return -1;
+    }
 
 	// parse the path to locate desire file in directory struct
-    int result = parsePath((char *)path, info);
+    int result = parsePath(pathCopy, info);
     if(result != 0){
 		free(info);
+        free(pathCopy);
 		return -1; 
     }  
     
     // invalid path; index of -1 --> actual file does not exist 
     if(info->index == -1){
         free(info);
+        free(pathCopy);
         return -1; 
     }
 
@@ -570,6 +718,7 @@ int fs_stat(const char *path, struct fs_stat *buf){
     buf->st_createtime = entry.createdTime;
 
     free(info);
+    free(pathCopy);
 
     return 0; 
 }
@@ -633,4 +782,3 @@ fail:
     free(srcInfo); free(destInfo); free(srcCopy); free(destCopy);
     return -1;
 }
-

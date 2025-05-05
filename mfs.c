@@ -33,21 +33,20 @@ int fs_mkdir(const char *pathname, mode_t mode){
         return -1;
     }
 
-    if(parsePath(pathCopy, info) != 0){
+    if(parsePath(pathCopy, info) != 0 || info->index != -1){
         free(info);
         free(pathCopy);
         return -1;
     }
 
-    //Check if a file/directory with the same name already exists in that location
-    if(info->index != -1){
-        free(info);
-        free(pathCopy);
-        return -1;
-    }
+    // //Check if a file/directory with the same name already exists in that location
+    // if(info->index != -1){
+    //     free(info);
+    //     free(pathCopy);
+    //     return -1;
+    //}
 
     uint64_t startBlock = createDirectory(MAX_ENTRIES, info->parent);
-
     if(startBlock == 0){
         free(info);
         free(pathCopy);
@@ -489,6 +488,10 @@ int fs_isFile(char * filename){
     DirectoryEntry *entry = &(info->parent[indx]);
     int isFile = !entry->isDir;  // If it's not a directory, it's a file
     
+    if (info->parent != rootDirectory && info->parent != currentWorkingDirectory) {
+        free(info->parent);
+    }
+
     free(info);
     free(pathCopy);
     return isFile ? 1 : 0;
@@ -520,6 +523,10 @@ int fs_isDir(char * pathname){
     // Checks isDir, which holds type for directory entries
     DirectoryEntry  *dir = &(info->parent[indx]);
     int result = isDEaDir(dir);
+
+    if (info->parent != rootDirectory && info->parent != currentWorkingDirectory) {
+        free(info->parent);
+    }
     
     free(info);
     free(pathCopy);
@@ -566,8 +573,12 @@ int fs_delete(char* filename){
             free(info);
             free(pathCopy);
             return -1;  // Failed to update parent directory
+        }       
+
+        if (info->parent != rootDirectory && info->parent != currentWorkingDirectory) {
+            free(info->parent);
         }
-        
+
         free(info);
         free(pathCopy);
         return 0;
@@ -717,6 +728,9 @@ int fs_stat(const char *path, struct fs_stat *buf){
     buf->st_modtime = entry.lastModified;
     buf->st_createtime = entry.createdTime;
 
+    if (info->parent != rootDirectory && info->parent != currentWorkingDirectory) {
+    free(info->parent);
+}
     free(info);
     free(pathCopy);
 
@@ -775,6 +789,13 @@ int fs_mv(const char *srcPath, const char *destPath) {
     LBAwrite(srcInfo->parent, srcBlocks, srcInfo->parent[0].startBlock);
     LBAwrite(destInfo->parent, destBlocks, destInfo->parent[0].startBlock);
 
+    if (srcInfo->parent != rootDirectory && srcInfo->parent != currentWorkingDirectory){
+        free(srcInfo->parent);
+    }
+    if (destInfo->parent != rootDirectory && destInfo->parent != currentWorkingDirectory){
+        free(destInfo->parent);
+    }
+    
     free(srcInfo); free(destInfo); free(srcCopy); free(destCopy);
     return 0;
 

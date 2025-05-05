@@ -120,4 +120,15 @@ void exitFileSystem()
         free(vcb);
         vcb = NULL;
     }
+
+     // prevent double-free if CWD and root are same
+    if (currentWorkingDirectory && currentWorkingDirectory != rootDirectory) {
+        free(currentWorkingDirectory);
+        currentWorkingDirectory = NULL;
+    }
+
+    if (rootDirectory) {
+        free(rootDirectory);
+        rootDirectory = NULL;
+    }
 }

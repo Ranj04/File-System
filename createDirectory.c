@@ -104,7 +104,7 @@ uint64_t createDirectory(int initialNumEntries, DirectoryEntry* parent) {
         currentBlock = readFATEntry(currentBlock);
     }
     
-    //free(newDirectory);
+    free(newDirectory);
     
     // Return the starting block
     return startBlock;

@@ -6,6 +6,7 @@ A tiny teaching filesystem with block I/O plus a demo shell (`fsshell`) that exe
 
 - Email: rjithendran@sfsu.edu / ranjiv.jithendran@gmail.com
 
+# Info:
 - **Block size:** 512 bytes  
 - **Typical volume size (for demos/tests):** 500,000 – 10,000,000 bytes  
 - Public API is declared in `mfs.h` (you may adapt it for your design, especially `fdDir`).

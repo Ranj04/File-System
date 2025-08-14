@@ -3,7 +3,8 @@
 A tiny teaching filesystem with block I/O plus a demo shell (`fsshell`) that exercises common file and directory operations.
 
 # Author: Ranjiv Jithendran
-    Email: rjithendran@sfsu.edu / ranjiv.jithendran@gmail.com
+
+- Email: rjithendran@sfsu.edu / ranjiv.jithendran@gmail.com
 
 - **Block size:** 512 bytes  
 - **Typical volume size (for demos/tests):** 500,000 – 10,000,000 bytes  
